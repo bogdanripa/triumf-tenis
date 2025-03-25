@@ -1,17 +1,8 @@
-# Learn more about Genezio YAML at https://genezio.com/docs/project-structure/genezio-configuration-file/
-# The name of the project.
-name: nextjs-getting-started
-# The region where the project is deployed.
-region: us-east-1
-# The version of the Genezio YAML configuration to parse.
-yamlVersion: 2
+name: triumf-tenis
 nextjs:
-  # The folder where the backend scripts will run.
-  path: .
-  # The package manager used to install dependencies.
-  packageManager: npm
-  # Scripts are running in the specified `path` directory.
-  scripts:
-    # List of scripts to run before deploying the backend.
-    deploy:
-      - npm install
+    packageManager: npm
+    path: .
+    scripts:
+        deploy: npm install
+region: eu-central-1
+yamlVersion: 2
