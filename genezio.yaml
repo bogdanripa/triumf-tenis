@@ -1,8 +1,14 @@
 name: triumf-tenis
 nextjs:
-    packageManager: npm
-    path: .
-    scripts:
-        deploy: npm install
+  packageManager: npm
+  path: .
+  subdomain: triumf-tenis
+  scripts:
+    deploy: npm install
 region: eu-central-1
 yamlVersion: 2
+services:
+  databases:
+    - name: my-mongo-db
+      region: eu-central-1
+      type: mongo-atlas
