@@ -80,11 +80,11 @@ function incrementColumn(col: string): string {
 
 function getScheduleFrom(sheet: XLSX.WorkSheet, col1:string, line:number) {
   const col2 = incrementColumn(col1);
-  const range = `${col1}${line+1}:${col2}${line+20}`;
+  const range = `${col1}${line+1}:${col2}${line+17}`;
   console.log(range);
   const json:any = XLSX.utils.sheet_to_json(sheet, { header: 1, range });
   for(let i = 0; i < json.length; i++) {
-    if (json[i].length == 0 || !json[i][0].includes("-")) {
+    if (json[i].length == 0 || json[i][0].trim() == '') {
       json.splice(i);
       break;
     }

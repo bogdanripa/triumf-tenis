@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { safeJson } from "@/lib/safeJson";
 
 const MONGODB_URI = process.env["MY_MONGO_DB_DATABASE_URL"] || '';
 
@@ -47,5 +48,6 @@ export async function clearSchedule(dayOfWeek:string | undefined = undefined) {
 
 export async function getSchedule() {
   await connectToDatabase();
-  return Schedule.find({}).sort({ dayIdx: 1 }).lean();
+  const data = await Schedule.find({}).sort({ dayIdx: 1 }).lean();
+  return safeJson(data);
 }
