@@ -8,4 +8,4 @@ export default async function Page() {
   return <ClientPage days={days} scheduleData={scheduleData} />;
 }
 
-export const revalidate = 60*24; // enables caching and revalidation
+export const revalidate = 15; // enables caching and revalidation

@@ -5,7 +5,7 @@ import { downloadExcelFile } from '@/lib/googleDrive';
 import * as XLSX from 'xlsx';
 
 const months = ["IANUARIE", "FEBRUARIE", "MARTIE", "APRILIE", "MAI", "IUNIE", "IULIE", "AUGUST", "SEPTEMBRIE", "OCTOMBRIE", "NOIEMBRIE", "DECEMBRIE"];
-const days = ["LUNI", "MARTI", "MIERCURI", "JOI", "VINERI", "SAMBATA", "DUMINICA"];
+const days = ["DUMINICA", "LUNI", "MARTI", "MIERCURI", "JOI", "VINERI", "SAMBATA"];
 
 function findCellAddressByValue(sheet: XLSX.WorkSheet, searchValue: string): [string, number] | null {
   const cellAddresses = Object.keys(sheet);
@@ -133,16 +133,21 @@ function getScheduleFrom(sheet: XLSX.WorkSheet, col1:string, line:number) {
 function getDaySchedule(dayIdx: Number, workbook:XLSX.WorkBook, monthNo: number, year: number, dayOfWeek: string, day: string) {
   const month = months[monthNo];
   const sheetName = `${month} ${year}`;
-  const sheet = workbook.Sheets[sheetName];
-  const header1 = findCellAddressByValue(sheet, `${dayOfWeek} ${day}`);
+  console.log(`Looking for "${dayOfWeek} ${day}" in ${sheetName}`);
   const schedule = [];
-  if (header1) {
-    const data = getScheduleFrom(sheet, header1[0], header1[1]);
-    for (let i=0;i<data.length;i++) {
-      for (const [time, state] of Object.entries(data[i])) {
-        schedule.push({dayIdx, location: i, dayOfWeek, time: parseInt(time), state})
+  const sheet = workbook.Sheets[sheetName];
+  if (sheet) {
+    const header1 = findCellAddressByValue(sheet, `${dayOfWeek} ${day}`);
+    if (header1) {
+      const data = getScheduleFrom(sheet, header1[0], header1[1]);
+      for (let i=0;i<data.length;i++) {
+        for (const [time, state] of Object.entries(data[i])) {
+          schedule.push({dayIdx, location: i, dayOfWeek, time: parseInt(time), state})
+        }
       }
     }
+  } else {
+    console.error(`Sheet "${sheetName}" not found`);
   }
   return schedule;
 }
@@ -151,7 +156,7 @@ function explodeDate(today: Date) {
   const year = today.getFullYear();
   const month = today.getMonth();
   const day = `${today.getDate()}`.padStart(2, '0');
-  const dayOfWeek = days[today.getDay()-1];
+  const dayOfWeek = days[today.getDay()];
   return { year, month, day, dayOfWeek };
 }
 
