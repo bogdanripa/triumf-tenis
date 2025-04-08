@@ -96,14 +96,15 @@ function getScheduleFrom(sheet: XLSX.WorkSheet, col1:string, line:number) {
           schedules[i][j] = 0;
       }
   }
-  for(let i = 0; i < json.length; i++) {
-    if(json[i].length > 0) {
-      for (let j=0;j<json[i].length;j++) {
-        if (json[i][j].match) {
-          const ret = json[i][j].match(/([\d:]+)-([\d:]+)(.*)$/);
+  for(let teren = 0; teren < json.length; teren++) {
+    if(json[teren].length > 0) {
+      for (let interval=0;interval<json[teren].length;interval++) {
+        if (json[teren][interval].match) {
+          const ret = json[teren][interval].match(/([\d:]+)-([\d:]+)(.*)$/);
           if(ret) {
-            if (ret[3].trim() == "") {
-                continue;
+            if (ret[3].trim() == "" || ret[3].trim().match(/\si$/i)) {
+              // empty slot
+              continue;
             }
             const from = ret[1];
             const to = ret[2];
@@ -119,7 +120,7 @@ function getScheduleFrom(sheet: XLSX.WorkSheet, col1:string, line:number) {
               toTime = 60*parseInt(to);
             }
             for (let k=fromTime; k<toTime; k+=30) {
-              schedules[j][k] = 1;
+              schedules[interval][k] = 1;
             }
           }
         }
