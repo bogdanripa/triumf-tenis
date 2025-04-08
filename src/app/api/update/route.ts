@@ -102,7 +102,7 @@ function getScheduleFrom(sheet: XLSX.WorkSheet, col1:string, line:number) {
         if (json[teren][interval].match) {
           const ret = json[teren][interval].match(/([\d:]+)-([\d:]+)(.*)$/);
           if(ret) {
-            if (ret[3].trim() == "" || ret[3].trim().match(/\si$/i)) {
+            if (ret[3].trim() == "" || ret[3].trim().match(/x$/i)) {
               // empty slot
               continue;
             }
