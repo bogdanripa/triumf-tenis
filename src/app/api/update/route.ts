@@ -100,7 +100,8 @@ function getScheduleFrom(sheet: XLSX.WorkSheet, col1:string, line:number) {
     if(json[teren].length > 0) {
       for (let interval=0;interval<json[teren].length;interval++) {
         if (json[teren][interval].match) {
-          const ret = json[teren][interval].match(/([\d:]+)-([\d:]+)(.*)$/);
+          const clean = json[teren][interval].replace(/[\u202A-\u202E\u200E\u200F\u2066-\u2069]/g, '');
+          const ret = clean.match(/([\d:]+)-([\d:]+)(.*)$/);
           if(ret) {
             if (ret[3].trim() == "" || ret[3].trim().match(/x$/i)) {
               // empty slot
