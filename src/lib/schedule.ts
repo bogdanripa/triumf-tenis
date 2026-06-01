@@ -96,7 +96,11 @@ function getScheduleFrom(sheet: XLSX.WorkSheet, col1:string, line:number) {
   const range = `${col1}${line+1}:${col2}${line+17}`;
   const json:any = XLSX.utils.sheet_to_json(sheet, { header: 1, range });
   for(let i = 0; i < json.length; i++) {
-    if (json[i].length == 0 || json[i][0].trim() == '') {
+    // End the day block at the first empty Teren 1 cell. A non-string value
+    // (e.g. a number or a date-coerced "10-11" slot) counts as non-empty.
+    const first = json[i][0];
+    const isEmpty = json[i].length == 0 || first == null || (typeof first === 'string' && first.trim() == '');
+    if (isEmpty) {
       json.splice(i);
       break;
     }
