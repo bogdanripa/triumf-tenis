@@ -32,6 +32,15 @@ function toMin(s: string): number {
 function cellText(ws: ExcelJS.Worksheet, r: number, c: number): string {
   const v = ws.getCell(r, c).value as any;
   if (v == null) return '';
+  // Excel/Sheets auto-converts a free "H-H2" slot (e.g. "10-11") into a date
+  // value (day=H, month=H2) when H2 <= 12. It still *displays* as "10-11", so
+  // recover the slot text from the date when it forms an ascending hour range.
+  if (v instanceof Date) {
+    const day = v.getUTCDate();
+    const mon = v.getUTCMonth() + 1;
+    if (day >= 1 && day < mon && mon <= 24) return `${day}-${mon}`;
+    return stripFormatting(String(v)).trim();
+  }
   let s: string;
   if (typeof v === 'object') {
     if (Array.isArray(v.richText)) s = v.richText.map((t: any) => t.text).join('');
