@@ -1,0 +1,29 @@
+name: Refresh schedule
+
+# Pings the deployed /api/update endpoint to re-import the schedule from
+# Google Drive into MongoDB. Replaces the old Genezio-side trigger.
+#
+# Why GitHub Actions and not Vercel Cron: Vercel's free Hobby tier only
+# allows cron jobs to run once per day. GitHub Actions can run every 15 min
+# for free.
+#
+# Setup: after the first Vercel deploy, set the repo variable REFRESH_URL to
+# your endpoint (Settings -> Secrets and variables -> Actions -> Variables).
+# If unset, it defaults to the Vercel project subdomain below.
+
+on:
+  schedule:
+    # Every 15 minutes. NOTE: GitHub may delay or occasionally skip scheduled
+    # runs under load — exact timing is best-effort, not guaranteed.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {} # allows manual "Run workflow" from the Actions tab
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/update
+        run: |
+          URL="${{ vars.REFRESH_URL || 'https://triumf-tenis.vercel.app/api/update' }}"
+          echo "Pinging $URL"
+          curl --fail --silent --show-error --max-time 120 "$URL"
