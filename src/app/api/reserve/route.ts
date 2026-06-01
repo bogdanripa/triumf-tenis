@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     return reply({ ok: false, error: 'Invalid JSON body' }, 400, origin);
   }
 
-  const { date, time, duration, name, email, phone, dryRun } = body || {};
+  const { date, time, duration, name, email, phone, court, dryRun } = body || {};
 
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
     return reply({ ok: false, error: 'Missing or invalid "date" (expected YYYY-MM-DD)' }, 400, origin);
@@ -49,6 +49,13 @@ export async function POST(req: NextRequest) {
   if (!name || !String(name).trim()) {
     return reply({ ok: false, error: 'Missing "name"' }, 400, origin);
   }
+  let courtNum: number | undefined;
+  if (court !== undefined && court !== null && court !== '') {
+    courtNum = Number(court);
+    if (courtNum !== 1 && courtNum !== 2) {
+      return reply({ ok: false, error: 'Invalid "court" (must be 1 or 2)' }, 400, origin);
+    }
+  }
 
   try {
     const result = await makeReservation({
@@ -58,6 +65,7 @@ export async function POST(req: NextRequest) {
       name: String(name),
       email: email ? String(email) : '',
       phone: phone ? String(phone) : '',
+      court: courtNum,
       dryRun: Boolean(dryRun),
     });
 

@@ -9,6 +9,7 @@ export type ReserveParams = {
   name: string;
   email?: string;
   phone?: string;
+  court?: number;     // 1 = Teren 1, 2 = Teren 2; if omitted, first free court is used
   dryRun?: boolean;   // if true: compute + validate but do NOT write to Drive
 };
 
@@ -152,10 +153,12 @@ export async function makeReservation(p: ReserveParams): Promise<ReserveResult> 
 
   const { ws, hRow, hCol } = found;
 
-  // Try Teren 1 (location 0) first, then Teren 2 (location 1).
+  // Book the requested court (1 -> location 0, 2 -> location 1). If no court
+  // was specified, try Teren 1 first, then Teren 2.
+  const courtsToTry = p.court === 1 || p.court === 2 ? [p.court - 1] : [0, 1];
   let chosen: { location: number; slots: Slot[] } | null = null;
   let lastReason = 'Slot not available';
-  for (let loc = 0; loc < 2; loc++) {
+  for (const loc of courtsToTry) {
     const res = coverInterval(parseColumn(ws, hRow, hCol, hCol + loc), startMin, endMin);
     if (res.ok) { chosen = { location: loc, slots: res.slots }; break; }
     lastReason = res.reason;
