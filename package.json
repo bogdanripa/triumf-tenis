@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "googleapis": "^148.0.0",
     "lucide-react": "^0.484.0",
     "mongoose": "^8.13.0",
