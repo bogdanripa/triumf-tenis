@@ -141,27 +141,34 @@
     return (court === 1 ? s.c1 : s.c2) ? 'booked' : 'free';
   }
 
-  // One 30-min half. pos: 'solo' (own rounded box) | 'top' | 'bot' (merged, shared box).
+  function isVisible(st) { return st === 'free' || st === 'booked'; }
+
+  // One 30-min half. pos: 'solo' (all 4 corners) | 'top' (top 2) | 'bot' (bottom 2).
+  // Rounding is inline (Tailwind's rounded-t-md/rounded-b-md aren't in their CSS).
+  // Touching halves drop their shared border so they read as one outline.
   function halfEl(day, court, minutes, st, pos) {
-    var round = pos === 'top' ? 'rounded-t-md border-b-0' : pos === 'bot' ? 'rounded-b-md border-t-0' : 'rounded-md';
-    var base = 'h-7 flex items-center justify-center border transition-all ' + round;
+    var radius = pos === 'top' ? 'border-bottom-width:0;border-radius:6px 6px 0 0;'
+      : pos === 'bot' ? 'border-top-width:0;border-radius:0 0 6px 6px;'
+      : 'border-radius:6px;';
+    var base = 'h-7 flex items-center justify-center border transition-all';
     // 'past' (the elapsed half of the current hour) renders blank, like 'none'.
     if (st === 'none' || st === 'past') return '<div class="' + base + ' bg-transparent border-transparent"></div>';
     var tip = COURT_NAMES[court] + ', ' + fmt(minutes) + '-' + fmt(minutes + 30) + ', ' + STATE_RO[st];
-    if (st === 'booked') return '<div title="' + tip + '" class="' + base + ' bg-rose-400/30 border-rose-300/40"></div>';
+    if (st === 'booked') return '<div title="' + tip + '" style="' + radius + '" class="' + base + ' bg-rose-400/30 border-rose-300/40"></div>';
     return '<button data-ttb-free data-court="' + court + '" data-time="' + fmt(minutes) + '" title="' + tip +
-      '" class="' + base + ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 cursor-pointer"></button>';
+      '" style="' + radius + '" class="' + base + ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 cursor-pointer"></button>';
   }
 
-  // A court's hour cell: one merged rounded box when both halves share a state,
-  // otherwise two separated half-boxes (split look via different colors).
+  // A court's hour cell. When both halves are visible they touch, with rounded
+  // corners only on the 4 outer corners (same color -> looks merged; different
+  // colors -> looks split). A lone visible half is a fully-rounded box.
   function courtCellHtml(day, court, hour, map) {
     var t0 = hour * 60, t1 = hour * 60 + 30;
     var s0 = halfState(day, court, t0, map), s1 = halfState(day, court, t1, map);
-    var merged = s0 === s1;
-    return '<div class="flex flex-col p-1 ' + (merged ? '' : 'gap-1') + '">' +
-      halfEl(day, court, t0, s0, merged ? 'top' : 'solo') +
-      halfEl(day, court, t1, s1, merged ? 'bot' : 'solo') +
+    var both = isVisible(s0) && isVisible(s1);
+    return '<div class="flex flex-col p-1">' +
+      halfEl(day, court, t0, s0, both ? 'top' : 'solo') +
+      halfEl(day, court, t1, s1, both ? 'bot' : 'solo') +
     '</div>';
   }
 
