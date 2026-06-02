@@ -205,8 +205,13 @@
     }
 
     var map = slotMap(day);
-    var rows = hoursOf(day).map(function (h) { return rowHtml(day, h, map); }).join('');
-    card.innerHTML = headerHtml(dateLabel(day), state.idx === 0, state.idx === state.days.length - 1) + legendHtml() + tableHtml(rows);
+    // Drop hours that are entirely in the past (both halves before now).
+    var hours = hoursOf(day).filter(function (h) { return !isPast(day, h * 60 + 30); });
+    var rows = hours.map(function (h) { return rowHtml(day, h, map); }).join('');
+    var body = rows
+      ? tableHtml(rows)
+      : '<div class="py-10 text-center text-sm text-muted-foreground">Nu mai sunt intervale disponibile pentru această zi.</div>';
+    card.innerHTML = headerHtml(dateLabel(day), state.idx === 0, state.idx === state.days.length - 1) + legendHtml() + body;
 
     var prev = card.querySelector('[data-ttb-prev]');
     var next = card.querySelector('[data-ttb-next]');
