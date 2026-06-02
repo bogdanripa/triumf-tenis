@@ -1,125 +1,57 @@
 import ExcelJS from 'exceljs';
 import { downloadExcelFile } from '@/lib/googleDrive';
 import { batchUpdateCells, colLetter, a1Range } from '@/lib/googleSheets';
-import { months, days, stripFormatting } from '@/lib/schedule';
+import { months, days, readDay, readDayWithFallback, isFreeCell, cellText, DaySlot } from '@/lib/schedule';
 
 export type ReserveParams = {
   date: string;       // YYYY-MM-DD
-  time: string;       // HH or HH:MM
-  duration: number;   // minutes
+  time: string;       // HH or HH:MM (on the hour)
+  duration: number;   // minutes (whole hours)
   name: string;
   email?: string;
   phone?: string;
   court?: number;     // 1 = Teren 1, 2 = Teren 2; if omitted, first free court is used
-  dryRun?: boolean;   // if true: compute + validate but do NOT write to Drive
+  dryRun?: boolean;
 };
 
 export type ReserveResult = {
-  location: number;      // 0 = Teren 1, 1 = Teren 2
-  slots: string[];       // the slot labels that were booked, e.g. ["18-19", "19-20"]
+  location: number;   // 0 = Teren 1, 1 = Teren 2
+  slots: string[];    // the 30-min slot start labels booked, e.g. ["18:00", "18:30"]
 };
 
-type Slot = { row: number; col: number; start: number; end: number; free: boolean; timeText: string };
+const SLOT = 30; // minutes per row
 
 function toMin(s: string): number {
   s = s.trim();
   if (s.includes(':')) {
     const [h, m] = s.split(':');
-    return 60 * parseInt(h) + parseInt(m);
+    return 60 * parseInt(h, 10) + parseInt(m, 10);
   }
-  return 60 * parseInt(s);
+  return 60 * parseInt(s, 10);
 }
 
-function cellText(ws: ExcelJS.Worksheet, r: number, c: number): string {
-  const v = ws.getCell(r, c).value as any;
-  if (v == null) return '';
-  // Excel/Sheets auto-converts a free "H-H2" slot (e.g. "10-11") into a date
-  // value (day=H, month=H2) when H2 <= 12. It still *displays* as "10-11", so
-  // recover the slot text from the date when it forms an ascending hour range.
-  if (v instanceof Date) {
-    const day = v.getUTCDate();
-    const mon = v.getUTCMonth() + 1;
-    if (day >= 1 && day < mon && mon <= 24) return `${day}-${mon}`;
-    return stripFormatting(String(v)).trim();
-  }
-  let s: string;
-  if (typeof v === 'object') {
-    if (Array.isArray(v.richText)) s = v.richText.map((t: any) => t.text).join('');
-    else if (v.text != null) s = String(v.text);
-    else if (v.result != null) s = String(v.result);
-    else s = String(v); // Date / other: keep non-empty so the day block isn't truncated; won't match the time-slot regex
-  } else {
-    s = String(v);
-  }
-  return stripFormatting(s).trim();
+function label(min: number): string {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 }
 
-// Find the cell holding a day header like "LUNI 01" in the given month sheet.
-function locateDay(
-  wb: ExcelJS.Workbook,
-  monthIdx: number,
-  year: number,
-  dayOfWeek: string,
-  day: string
-): { ws: ExcelJS.Worksheet; hRow: number; hCol: number } | null {
-  if (monthIdx < 0 || monthIdx > 11) return null;
-  const ws = wb.getWorksheet(`${months[monthIdx]} ${year}`);
-  if (!ws) return null;
-  const target = `${dayOfWeek} ${day}`;
-  let hRow = 0, hCol = 0;
-  ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-    row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-      const v = cell.value;
-      if (!hRow && typeof v === 'string' && stripFormatting(v).trim() === target) {
-        hRow = rowNumber;
-        hCol = colNumber;
-      }
-    });
-  });
-  return hRow ? { ws, hRow, hCol } : null;
-}
-
-// Parse the pre-defined time slots of one court column, within the day block.
-// The block runs from the row under the header until the Teren 1 column (hCol)
-// goes blank — mirroring how the importer (getScheduleFrom) trims the block.
-function parseColumn(ws: ExcelJS.Worksheet, hRow: number, hCol: number, col: number): Slot[] {
-  const slots: Slot[] = [];
-  for (let r = hRow + 1; r <= hRow + 30; r++) {
-    if (cellText(ws, r, hCol) === '') break; // end of the day block
-    const txt = cellText(ws, r, col);
-    const m = txt.match(/^([\d:]+)-([\d:]+)(.*)$/);
-    if (!m) continue; // not a time slot (e.g. a stray number/date or empty)
-    const rest = m[3].trim();
-    const free = rest === '' || /x$/i.test(rest);
-    slots.push({ row: r, col, start: toMin(m[1]), end: toMin(m[2]), free, timeText: `${m[1]}-${m[2]}` });
-  }
-  return slots;
-}
-
-// Decide whether [startMin, endMin) can be booked on this column by tiling it
-// with free cells that fall entirely within the requested interval.
-function coverInterval(slots: Slot[], startMin: number, endMin: number):
-  | { ok: true; slots: Slot[] }
+// The 30-min rows of one court that tile [startMin, endMin), all free.
+function cover(slots: DaySlot[], court: number, startMin: number, endMin: number):
+  | { ok: true; rows: DaySlot[] }
   | { ok: false; reason: string } {
-  const contained = slots
-    .filter((s) => s.start >= startMin && s.end <= endMin)
+  const need = (endMin - startMin) / SLOT;
+  const inRange = slots
+    .filter((s) => s.start >= startMin && s.start < endMin)
     .sort((a, b) => a.start - b.start);
-
-  let cursor = startMin;
-  const picked: Slot[] = [];
-  for (const s of contained) {
-    if (s.start !== cursor) break; // gap or overlap — can't tile cleanly
-    picked.push(s);
-    cursor = s.end;
-    if (cursor >= endMin) break;
+  if (inRange.length < need) return { ok: false, reason: 'No matching time slot available for that interval' };
+  for (let i = 0; i < need; i++) {
+    if (!inRange[i] || inRange[i].start !== startMin + i * SLOT) {
+      return { ok: false, reason: 'No matching time slot available for that interval' };
+    }
   }
-  if (cursor < endMin) {
-    return { ok: false, reason: 'No matching time slot available for that interval' };
-  }
-  if (picked.some((s) => !s.free)) {
-    return { ok: false, reason: 'Time slot is already booked' };
-  }
-  return { ok: true, slots: picked };
+  const picked = inRange.slice(0, need);
+  const free = picked.every((s) => (court === 0 ? s.c1free : s.c2free));
+  if (!free) return { ok: false, reason: 'Time slot is already booked' };
+  return { ok: true, rows: picked };
 }
 
 export async function makeReservation(p: ReserveParams): Promise<ReserveResult> {
@@ -128,71 +60,72 @@ export async function makeReservation(p: ReserveParams): Promise<ReserveResult> 
 
   const startMin = toMin(p.time);
   const endMin = startMin + Math.round(p.duration);
-  if (!Number.isFinite(startMin) || !(endMin > startMin)) {
-    throw new Error('Invalid time or duration');
-  }
+  if (!Number.isFinite(startMin) || !(endMin > startMin)) throw new Error('Invalid time or duration');
 
   const buf = await downloadExcelFile(process.env.GOOGLE_SPREADSHEET_ID);
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf as any);
 
-  const year = d.getFullYear();
-  const monthIdx = d.getMonth();
-  const day = `${d.getDate()}`.padStart(2, '0');
-  const dayOfWeek = days[d.getDay()];
+  const grid = readDayWithFallback(wb, d);
+  if (!grid) throw new Error(`No schedule found for ${days[d.getDay()]} ${d.getDate()}`);
 
-  // Primary month, then the adjacent sheet (some boundary weeks live there).
-  let found = locateDay(wb, monthIdx, year, dayOfWeek, day);
-  if (!found) {
-    let nm = monthIdx, ny = year;
-    if (d.getDate() < 15) { nm--; if (nm < 0) { nm = 11; ny--; } }
-    else { nm++; if (nm > 11) { nm = 0; ny++; } }
-    found = locateDay(wb, nm, ny, dayOfWeek, day);
-  }
-  if (!found) throw new Error(`No schedule found for ${dayOfWeek} ${day}`);
+  // We need the worksheet for A1 ranges; find it again by the day the grid came
+  // from. readDayWithFallback already resolved the right sheet — re-resolve to
+  // get the worksheet object and its name.
+  const ws = resolveSheet(wb, d);
+  if (!ws) throw new Error('Sheet not found');
 
-  const { ws, hRow, hCol } = found;
-
-  // Book the requested court (1 -> location 0, 2 -> location 1). If no court
-  // was specified, try Teren 1 first, then Teren 2.
+  // Choose the requested court, else first free (Teren 1, then Teren 2).
   const courtsToTry = p.court === 1 || p.court === 2 ? [p.court - 1] : [0, 1];
-  let chosen: { location: number; slots: Slot[] } | null = null;
+  let chosen: { location: number; rows: DaySlot[] } | null = null;
   let lastReason = 'Slot not available';
   for (const loc of courtsToTry) {
-    const res = coverInterval(parseColumn(ws, hRow, hCol, hCol + loc), startMin, endMin);
-    if (res.ok) { chosen = { location: loc, slots: res.slots }; break; }
+    const res = cover(grid.slots, loc, startMin, endMin);
+    if (res.ok) { chosen = { location: loc, rows: res.rows }; break; }
     lastReason = res.reason;
   }
   if (!chosen) throw new Error(lastReason);
 
-  // HARD RULE: never overwrite a cell that already holds a reservation.
-  // Re-read every target cell right before writing and confirm it is still a
-  // recognizable free slot (empty time range, or a trailing "x" cancellation).
-  // If any is not, abort without writing ANYTHING.
-  for (const s of chosen.slots) {
-    const cur = cellText(ws, s.row, s.col);
-    const m = cur.match(/^([\d:]+)-([\d:]+)(.*)$/);
-    const rest = m ? m[3].trim() : '';
-    const stillFree = !!m && (rest === '' || /x$/i.test(rest));
-    if (!stillFree) {
-      throw new Error('Time slot is already booked');
-    }
+  const col = chosen.location === 0 ? grid.court1Col : grid.court2Col;
+
+  // HARD RULE: re-read every target cell right before writing; abort (writing
+  // nothing) if any is no longer a free cell, so an existing reservation can
+  // never be overwritten.
+  for (const s of chosen.rows) {
+    if (!isFreeCell(cellText(ws, s.row, col))) throw new Error('Time slot is already booked');
   }
 
-  // Build the cell text. Phone (digits) goes last so the value never ends in a
-  // letter "x" — which the importer treats as a cancellation (=> free).
+  // Cell holds just the player's details now (time lives in the "Ora" column).
+  // Phone (digits) goes last so the value never ends in "x" (the cancellation
+  // marker, which would read the slot back as free).
   let details = [p.name, p.email, p.phone].map((x) => (x || '').trim()).filter(Boolean).join(' ');
   if (/x$/i.test(details)) details += '.';
 
   if (!p.dryRun) {
-    // Surgical cell writes via the Sheets API: update only the booked cells,
-    // leaving all other cells and formatting untouched.
-    const updates = chosen.slots.map((s) => ({
-      range: a1Range(ws.name, `${colLetter(s.col)}${s.row}`),
-      value: `${s.timeText} ${details}`,
+    const updates = chosen.rows.map((s) => ({
+      range: a1Range(ws.name, `${colLetter(col)}${s.row}`),
+      value: details,
     }));
     await batchUpdateCells(process.env.GOOGLE_SPREADSHEET_ID, updates);
   }
 
-  return { location: chosen.location, slots: chosen.slots.map((s) => s.timeText) };
+  return { location: chosen.location, slots: chosen.rows.map((s) => label(s.start)) };
+}
+
+// Re-resolve the worksheet a date maps to (primary month, else adjacent).
+function resolveSheet(wb: ExcelJS.Workbook, d: Date): ExcelJS.Worksheet | undefined {
+  const dayOfWeek = days[d.getDay()];
+  const day = `${d.getDate()}`.padStart(2, '0');
+  const tryMonth = (mi: number, y: number): ExcelJS.Worksheet | undefined => {
+    if (mi < 0 || mi > 11) return undefined;
+    const ws = wb.getWorksheet(`${months[mi]} ${y}`);
+    if (ws && readDay(ws, dayOfWeek, day)) return ws;
+    return undefined;
+  };
+  let ws = tryMonth(d.getMonth(), d.getFullYear());
+  if (ws) return ws;
+  let nm = d.getMonth(), ny = d.getFullYear();
+  if (d.getDate() < 15) { nm--; if (nm < 0) { nm = 11; ny--; } }
+  else { nm++; if (nm > 11) { nm = 0; ny++; } }
+  return tryMonth(nm, ny);
 }
