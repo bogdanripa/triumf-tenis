@@ -132,7 +132,7 @@
   }
 
   var COURT_NAMES = { 1: 'Teren 1', 2: 'Teren 2' };
-  var STATE_RO = { free: 'liber', booked: 'ocupat', past: 'trecut' };
+  var STATE_RO = { free: 'liber', booked: 'ocupat' };
 
   function halfState(day, court, minutes, map) {
     var s = map[minutes];
@@ -145,9 +145,9 @@
   function halfEl(day, court, minutes, st, pos) {
     var round = pos === 'top' ? 'rounded-t-md border-b-0' : pos === 'bot' ? 'rounded-b-md border-t-0' : 'rounded-md';
     var base = 'h-7 flex items-center justify-center border transition-all ' + round;
-    if (st === 'none') return '<div class="' + base + ' bg-transparent border-transparent"></div>';
+    // 'past' (the elapsed half of the current hour) renders blank, like 'none'.
+    if (st === 'none' || st === 'past') return '<div class="' + base + ' bg-transparent border-transparent"></div>';
     var tip = COURT_NAMES[court] + ', ' + fmt(minutes) + '-' + fmt(minutes + 30) + ', ' + STATE_RO[st];
-    if (st === 'past') return '<div title="' + tip + '" class="' + base + ' bg-white/[0.02] border-white/5"></div>';
     if (st === 'booked') return '<div title="' + tip + '" class="' + base + ' bg-rose-400/30 border-rose-300/40"></div>';
     return '<button data-ttb-free data-court="' + court + '" data-time="' + fmt(minutes) + '" title="' + tip +
       '" class="' + base + ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 cursor-pointer"></button>';
