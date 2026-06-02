@@ -95,8 +95,9 @@ export async function makeReservation(p: ReserveParams): Promise<ReserveResult> 
     if (!isFreeCell(cellText(ws, s.row, col))) throw new Error('Time slot is already booked');
   }
 
-  // Cell holds just the player's details now (time lives in the "Ora" column).
-  const details = [p.name, p.email, p.phone].map((x) => (x || '').trim()).filter(Boolean).join(' ');
+  // Cell holds the booking details, marked as coming from the website:
+  //   "Site / {Name} / {email} / {phone}"
+  const details = ['Site', p.name, p.email, p.phone].map((x) => (x || '').trim()).filter(Boolean).join(' / ');
 
   if (!p.dryRun) {
     const updates = chosen.rows.map((s) => ({
