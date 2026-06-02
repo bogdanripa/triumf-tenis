@@ -96,10 +96,7 @@ export async function makeReservation(p: ReserveParams): Promise<ReserveResult> 
   }
 
   // Cell holds just the player's details now (time lives in the "Ora" column).
-  // Phone (digits) goes last so the value never ends in "x" (the cancellation
-  // marker, which would read the slot back as free).
-  let details = [p.name, p.email, p.phone].map((x) => (x || '').trim()).filter(Boolean).join(' ');
-  if (/x$/i.test(details)) details += '.';
+  const details = [p.name, p.email, p.phone].map((x) => (x || '').trim()).filter(Boolean).join(' ');
 
   if (!p.dryRun) {
     const updates = chosen.rows.map((s) => ({

@@ -25,7 +25,7 @@
 
   var RO_DAYS = { LUNI: 'luni', MARTI: 'marți', MIERCURI: 'miercuri', JOI: 'joi', VINERI: 'vineri', SAMBATA: 'sâmbătă', DUMINICA: 'duminică' };
   var RO_MONTHS = ['ianuarie', 'februarie', 'martie', 'aprilie', 'mai', 'iunie', 'iulie', 'august', 'septembrie', 'octombrie', 'noiembrie', 'decembrie'];
-  var DURATIONS = [ { value: 60, label: '1 oră' }, { value: 120, label: '2 ore' } ];
+  var DURATIONS = [ { value: 60, label: '1 oră' }, { value: 90, label: '1 oră 30 min' }, { value: 120, label: '2 ore' } ];
 
   var BTN_BASE = 'h-10 sm:h-11 m-1 rounded-md border transition-all flex items-center justify-center gap-1 text-[10px]';
   var GRID_COLS = 'grid-template-columns: 80px repeat(2, 1fr);';
@@ -56,8 +56,8 @@
     if (/already booked/i.test(msg)) return 'Acest interval este deja rezervat.';
     if (/No matching time slot/i.test(msg)) return 'Nu există un interval liber care să corespundă orei și duratei alese.';
     if (/No schedule found/i.test(msg)) return 'Programul pentru această zi nu este disponibil.';
-    if (/start on the hour/i.test(msg)) return 'Rezervările încep doar la ore fixe.';
-    if (/whole number of hours/i.test(msg)) return 'Durata trebuie să fie în ore întregi.';
+    if (/30-minute boundary/i.test(msg)) return 'Rezervările încep la oră fixă sau la și jumătate.';
+    if (/30-minute increments/i.test(msg)) return 'Durata trebuie să fie multiplu de 30 de minute.';
     if (/Invalid|Missing/i.test(msg)) return 'Date invalide. Verifică informațiile introduse.';
     return msg;
   }
@@ -85,16 +85,12 @@
     document.head.appendChild(s);
   }
 
-  function hoursFor(day) {
-    var map = {};
-    day.slots.forEach(function (s) {
-      var h = Math.floor(s.time / 60);
-      if (!map[h]) map[h] = { court1: false, court2: false };
-      if (s.court1 === 'booked') map[h].court1 = true;
-      if (s.court2 === 'booked') map[h].court2 = true;
-    });
-    return Object.keys(map).map(Number).sort(function (a, b) { return a - b; }).map(function (h) {
-      return { hour: h, label: pad(h) + '-' + pad(h + 1), time: pad(h) + ':00', court1: map[h].court1, court2: map[h].court2 };
+  function fmt(min) { return pad(Math.floor(min / 60)) + ':' + pad(min % 60); }
+
+  // One row per 30-minute slot, in order.
+  function slotsFor(day) {
+    return (day.slots || []).slice().sort(function (a, b) { return a.time - b.time; }).map(function (s) {
+      return { time: s.time, start: fmt(s.time), label: fmt(s.time) + '-' + fmt(s.time + 30), court1: s.court1 === 'booked', court2: s.court2 === 'booked' };
     });
   }
 
@@ -105,9 +101,10 @@
     return roDay;
   }
 
-  function isPast(day, hour) {
+  function isPast(day, minutes) {
     if (day.dayIdx !== 0) return false;
-    return hour < new Date().getHours();
+    var now = new Date();
+    return minutes < now.getHours() * 60 + now.getMinutes();
   }
 
   function headerHtml(dateText, prevDisabled, nextDisabled) {
@@ -129,25 +126,25 @@
     '</div>';
   }
 
-  function cellHtml(day, row, court) {
-    var booked = court === 1 ? row.court1 : row.court2;
-    if (isPast(day, row.hour)) {
+  function cellHtml(day, slot, court) {
+    var booked = court === 1 ? slot.court1 : slot.court2;
+    if (isPast(day, slot.time)) {
       return '<button disabled aria-label="Trecut" class="' + BTN_BASE + ' bg-white/[0.02] border-white/5 cursor-not-allowed"></button>';
     }
     if (booked) {
       return '<button disabled aria-label="Ocupat" class="' + BTN_BASE + ' bg-rose-400/30 border-rose-300/40 cursor-not-allowed"></button>';
     }
-    return '<button data-ttb-free data-court="' + court + '" data-time="' + row.time + '" data-label="' + row.label +
+    return '<button data-ttb-free data-court="' + court + '" data-time="' + slot.start + '" data-label="' + slot.label +
       '" aria-label="Liber - apasă pentru rezervare" class="' + BTN_BASE +
       ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 hover:scale-[1.02] cursor-pointer"></button>';
   }
 
-  function rowHtml(day, row) {
-    var past = isPast(day, row.hour);
+  function rowHtml(day, slot) {
+    var past = isPast(day, slot.time);
     var oraCls = 'px-3 py-2.5 text-xs sm:text-sm font-medium border-r border-white/10 bg-white/[0.02] ' + (past ? 'text-foreground/30' : 'text-foreground/80');
     return '<div class="grid border-b border-white/5 last:border-b-0" style="' + GRID_COLS + '">' +
-      '<div class="' + oraCls + '">' + row.label + '</div>' +
-      cellHtml(day, row, 1) + cellHtml(day, row, 2) + '</div>';
+      '<div class="' + oraCls + '">' + slot.label + '</div>' +
+      cellHtml(day, slot, 1) + cellHtml(day, slot, 2) + '</div>';
   }
 
   function tableHtml(rowsHtml) {
@@ -193,7 +190,7 @@
       return;
     }
 
-    var rows = hoursFor(day).map(function (r) { return rowHtml(day, r); }).join('');
+    var rows = slotsFor(day).map(function (s) { return rowHtml(day, s); }).join('');
     card.innerHTML = headerHtml(dateLabel(day), state.idx === 0, state.idx === state.days.length - 1) + legendHtml() + tableHtml(rows);
 
     var prev = card.querySelector('[data-ttb-prev]');
@@ -278,6 +275,7 @@
     var email = el('input', { type: 'email', placeholder: 'email@exemplu.ro', style: INPUT });
     var phone = el('input', { type: 'tel', placeholder: '07xx xxx xxx', style: INPUT });
     var duration = el('select', { style: INPUT }, DURATIONS.map(function (d) { return el('option', { value: d.value, text: d.label }); }));
+    duration.addEventListener('change', function () { summaryEl.textContent = courtName + ' • ' + dateLabel(day) + ' • ' + rangeText(); });
     var errorBox = el('p', { style: 'color:#fca5a5;font-size:13px;margin:6px 0 0;min-height:16px;' });
     var submit = el('button', { text: 'Rezervă', style: 'flex:1;padding:11px;border-radius:8px;border:0;font-size:14px;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(to right,#7c3aed,#d946ef);' });
     var cancel = el('button', { text: 'Anulează', onclick: close, style: 'flex:1;padding:11px;border-radius:8px;border:0;font-size:14px;font-weight:600;cursor:pointer;color:#e5e7eb;background:rgba(255,255,255,.1);' });
@@ -285,7 +283,9 @@
     function field(t, input) { return el('div', { style: 'margin-bottom:12px;' }, [el('label', { text: t, style: LABEL }), input]); }
 
     var courtName = court === 2 ? 'Teren 2 (Indoor)' : 'Teren 1';
-    var summary = courtName + ' • ' + dateLabel(day) + ' • ora ' + row.label;
+    var startMin = (function () { var p = String(row.time).split(':'); return (+p[0]) * 60 + (+p[1] || 0); })();
+    function rangeText() { return fmt(startMin) + '-' + fmt(startMin + Number(duration.value)); }
+    var summary = courtName + ' • ' + dateLabel(day) + ' • ' + rangeText();
 
     // Spinner overlay shown over the modal while the request is in flight.
     var loadingLayer = el('div', { style: 'position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(21,19,31,.9);border-radius:16px;z-index:1;' }, [
@@ -305,7 +305,7 @@
             '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>' +
           '</div>' +
           '<h3 style="margin:0 0 6px;font-size:18px;color:#fff;">Rezervare confirmată!</h3>' +
-          '<p style="margin:0 0 18px;color:#a7f3d0;font-size:14px;">' + summary + '</p>' +
+          '<p style="margin:0 0 18px;color:#a7f3d0;font-size:14px;">' + (courtName + ' • ' + dateLabel(day) + ' • ' + rangeText()) + '</p>' +
           '<button data-ttb-close style="width:100%;padding:11px;border-radius:8px;border:0;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(to right,#7c3aed,#d946ef);">Închide</button>' +
         '</div>';
       modal.querySelector('[data-ttb-close]').addEventListener('click', function () { close(); state.status = 'loading'; mount(); load(); });
@@ -329,9 +329,10 @@
         .catch(function () { setBusy(false); errorBox.textContent = 'Conexiune eșuată. Încearcă din nou.'; });
     });
 
+    var summaryEl = el('p', { text: summary, style: 'margin:0 0 16px;color:#9ca3af;font-size:14px;' });
     var modal = el('div', { style: 'position:relative;background:#15131f;color:#e5e7eb;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:22px;max-width:380px;width:100%;font-family:inherit;box-shadow:0 20px 60px rgba(0,0,0,.5);' }, [
       el('h3', { text: 'Rezervă terenul', style: 'margin:0 0 4px;font-size:18px;color:#fff;' }),
-      el('p', { text: summary, style: 'margin:0 0 16px;color:#9ca3af;font-size:14px;' }),
+      summaryEl,
       field('Nume *', name), field('Email *', email), field('Telefon *', phone), field('Durată', duration),
       errorBox,
       el('div', { style: 'display:flex;gap:10px;margin-top:8px;' }, [cancel, submit]),

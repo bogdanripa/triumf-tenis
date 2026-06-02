@@ -29,11 +29,10 @@ export function cellText(ws: ExcelJS.Worksheet, r: number, c: number): string {
   return stripFormatting(String(v)).trim();
 }
 
-// A cell (a player name, or empty) counts as free when it's blank or ends in a
-// trailing "x" (the cancellation marker).
+// A cell counts as free only when it's blank. Cancellations are deleted from
+// the sheet, so there's no longer a trailing-"x" marker to interpret.
 export function isFreeCell(text: string): boolean {
-  const t = text.trim();
-  return t === '' || /x$/i.test(t);
+  return text.trim() === '';
 }
 
 export type DaySlot = { row: number; start: number; court1Col: number; court2Col: number; c1free: boolean; c2free: boolean };

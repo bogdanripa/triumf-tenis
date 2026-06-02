@@ -45,13 +45,13 @@ export async function POST(req: NextRequest) {
   if (!Number.isFinite(dur) || dur <= 0) {
     return reply({ ok: false, error: 'Missing or invalid "duration" (minutes, must be > 0)' }, 400, origin);
   }
-  // Full-hour bookings only: start on the hour, duration in whole hours.
+  // 30-minute grid: starts on :00 or :30, durations in 30-minute increments.
   const startMinutes = String(time).indexOf(':') >= 0 ? parseInt(String(time).split(':')[1], 10) : 0;
-  if (startMinutes !== 0) {
-    return reply({ ok: false, error: 'Bookings must start on the hour' }, 400, origin);
+  if (startMinutes % 30 !== 0) {
+    return reply({ ok: false, error: 'Bookings must start on a 30-minute boundary' }, 400, origin);
   }
-  if (dur % 60 !== 0) {
-    return reply({ ok: false, error: 'Duration must be a whole number of hours' }, 400, origin);
+  if (dur % 30 !== 0) {
+    return reply({ ok: false, error: 'Duration must be in 30-minute increments' }, 400, origin);
   }
   if (!name || !String(name).trim()) {
     return reply({ ok: false, error: 'Missing "name"' }, 400, origin);
