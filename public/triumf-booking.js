@@ -303,7 +303,12 @@
   function openBooking(day, startTime, court) {
     ensureStyles();
     var overlay = el('div', { style: 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:99999;padding:16px;', onclick: function (e) { if (e.target === overlay) close(); } });
-    function close() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+    function close() {
+      document.removeEventListener('keydown', onKey);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    document.addEventListener('keydown', onKey);
 
     var INPUT = 'width:100%;padding:9px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;font-size:14px;font-family:inherit;';
     var LABEL = 'font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:4px;display:block;';
