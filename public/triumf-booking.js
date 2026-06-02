@@ -34,6 +34,7 @@
 
   // status: 'loading' | 'ready' | 'error'
   var state = { days: [], idx: 0, status: 'loading' };
+  var scrolledToHash = false;
 
   function pad(n) { return String(n).padStart(2, '0'); }
   function titleCase(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s; }
@@ -293,7 +294,20 @@
 
   function mount() {
     var c = container();
-    if (c) render(c);
+    if (c) { render(c); maybeScrollToHash(c); }
+  }
+
+  // SPA routers don't scroll to #booking-system after render; do it ourselves,
+  // once, when the schedule is ready and the page was opened with that hash.
+  function maybeScrollToHash(c) {
+    if (scrolledToHash || state.status !== 'ready') return;
+    if ((location.hash || '').replace('#', '') !== 'booking-system') return;
+    scrolledToHash = true;
+    var target = document.getElementById('booking-system') || c;
+    setTimeout(function () {
+      try { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      catch (e) { target.scrollIntoView(); }
+    }, 80);
   }
 
   function load() {
