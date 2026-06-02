@@ -1,16 +1,18 @@
 /*
  * Triumf Tenis - booking widget
  * --------------------------------
- * Drop-in script for triumf-tenis.ro. Renders court availability for the next
- * 3 days (from /api/schedule) and lets visitors book a slot (via /api/reserve).
+ * Replaces the static "Disponibilitate Terenuri" card on triumf-tenis.ro with
+ * a live one (data from /api/schedule) and lets visitors book (via /api/reserve).
+ * The table markup reuses the site's own Tailwind classes so it looks identical;
+ * only the booking modal is self-styled (it has no equivalent in the original).
  *
- * Embed on the page:
- *   <div id="booking-system"></div>
+ * Embed (after the app's own scripts):
  *   <script src="https://triumf-tenis.vercel.app/triumf-booking.js" defer></script>
  *
- * Optional attributes on the <script> tag:
- *   data-mount="#some-selector"   where to render (default: #booking-system)
- *   data-api="https://..."        API origin (default: the script's own origin)
+ * Optional <script> attributes:
+ *   data-card="#selector"   element to replace (default: the "Disponibilitate
+ *                           Terenuri" .glass-card found by heading text)
+ *   data-api="https://..."  API origin (default: the script's own origin)
  */
 (function () {
   'use strict';
@@ -18,22 +20,30 @@
   var CURRENT = document.currentScript;
   var API = (CURRENT && CURRENT.dataset.api) ||
     (CURRENT && CURRENT.src ? new URL(CURRENT.src).origin : 'https://triumf-tenis.vercel.app');
-  var MOUNT_SEL = (CURRENT && CURRENT.dataset.mount) || '#booking-system';
+  var CARD_SEL = CURRENT && CURRENT.dataset.card;
+  var HEADING = 'Disponibilitate Terenuri';
 
-  var DURATIONS = [
-    { value: 60, label: '1 oră' },
-    { value: 90, label: '1 oră 30 min' },
-    { value: 120, label: '2 ore' },
-  ];
+  var RO_DAYS = { LUNI: 'luni', MARTI: 'marți', MIERCURI: 'miercuri', JOI: 'joi', VINERI: 'vineri', SAMBATA: 'sâmbătă', DUMINICA: 'duminică' };
+  var RO_MONTHS = ['ianuarie', 'februarie', 'martie', 'aprilie', 'mai', 'iunie', 'iulie', 'august', 'septembrie', 'octombrie', 'noiembrie', 'decembrie'];
+  var DURATIONS = [ { value: 60, label: '1 oră' }, { value: 90, label: '1 oră 30 min' }, { value: 120, label: '2 ore' } ];
 
-  // Map the API's English errors to Romanian for the visitor.
+  var BTN_BASE = 'h-10 sm:h-11 m-1 rounded-md border transition-all flex items-center justify-center gap-1 text-[10px]';
+  var GRID_COLS = 'grid-template-columns: 80px repeat(2, 1fr);';
+  var CAL_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-days w-5 h-5 text-violet-300"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>';
+  var CHEV_L = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left w-4 h-4"><path d="m15 18-6-6 6-6"></path></svg>';
+  var CHEV_R = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right w-4 h-4"><path d="m9 18 6-6-6-6"></path></svg>';
+
+  var state = { days: [], idx: 0 };
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function titleCase(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s; }
+
   function translateError(msg) {
     if (!msg) return 'A apărut o eroare. Încearcă din nou.';
     if (/already booked/i.test(msg)) return 'Acest interval este deja rezervat.';
     if (/No matching time slot/i.test(msg)) return 'Nu există un interval liber care să corespundă orei și duratei alese.';
     if (/No schedule found/i.test(msg)) return 'Programul pentru această zi nu este disponibil.';
     if (/Invalid|Missing/i.test(msg)) return 'Date invalide. Verifică informațiile introduse.';
-    if (/Origin not allowed/i.test(msg)) return 'Rezervările nu sunt permise de pe acest site.';
     return msg;
   }
 
@@ -42,20 +52,18 @@
     if (attrs) Object.keys(attrs).forEach(function (k) {
       if (k === 'class') node.className = attrs[k];
       else if (k === 'text') node.textContent = attrs[k];
+      else if (k === 'style') node.style.cssText = attrs[k];
       else if (k.indexOf('on') === 0 && typeof attrs[k] === 'function') node.addEventListener(k.slice(2), attrs[k]);
-      else node.setAttribute(k, attrs[k]);
+      else if (attrs[k] != null) node.setAttribute(k, attrs[k]);
     });
     (children || []).forEach(function (c) { if (c != null) node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
     return node;
   }
 
-  function pad(n) { return String(n).padStart(2, '0'); }
-  function titleCase(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s; }
-
-  // Group 30-min slots into hourly rows. A court counts as booked for an hour
-  // if ANY 30-min slot within it is booked (conservative).
+  // Group 30-min slots into hourly rows; a court is booked for the hour if any
+  // 30-min slot within it is booked.
   function hoursFor(day) {
-    var map = {}; // hour -> { court1: bool, court2: bool, seen: bool }
+    var map = {};
     day.slots.forEach(function (s) {
       var h = Math.floor(s.time / 60);
       if (!map[h]) map[h] = { court1: false, court2: false };
@@ -67,230 +75,185 @@
     });
   }
 
-  function injectStyles() {
-    if (document.getElementById('ttb-styles')) return;
-    var css = [
-      '.ttb{font-family:inherit;max-width:640px;margin:0 auto;color:#1f2937}',
-      '.ttb *{box-sizing:border-box}',
-      '.ttb-nav{display:flex;align-items:center;justify-content:center;gap:16px;margin:0 0 12px}',
-      '.ttb-nav button{background:#0f766e;color:#fff;border:0;border-radius:8px;width:38px;height:38px;font-size:18px;cursor:pointer;line-height:1}',
-      '.ttb-nav button:disabled{opacity:.35;cursor:default}',
-      '.ttb-nav .ttb-day{font-size:18px;font-weight:600;min-width:170px;text-align:center;text-transform:capitalize}',
-      '.ttb-table{width:100%;border-collapse:collapse;font-size:14px}',
-      '.ttb-table th,.ttb-table td{border:1px solid #e5e7eb;padding:8px;text-align:center}',
-      '.ttb-table th{background:#f3f4f6;font-weight:600}',
-      '.ttb-cell{cursor:default;font-weight:600}',
-      '.ttb-free{background:#dcfce7;color:#166534;cursor:pointer}',
-      '.ttb-free:hover{background:#bbf7d0}',
-      '.ttb-booked{background:#fee2e2;color:#991b1b}',
-      '.ttb-ora{background:#f9fafb;color:#374151;font-weight:600}',
-      '.ttb-legend{display:flex;gap:16px;justify-content:center;margin:10px 0;font-size:13px;color:#6b7280}',
-      '.ttb-legend span{display:inline-flex;align-items:center;gap:6px}',
-      '.ttb-dot{width:12px;height:12px;border-radius:3px;display:inline-block}',
-      '.ttb-msg{text-align:center;padding:16px;color:#6b7280}',
-      '.ttb-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px}',
-      '.ttb-modal{background:#fff;border-radius:14px;padding:22px;max-width:380px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.3)}',
-      '.ttb-modal h3{margin:0 0 4px;font-size:18px}',
-      '.ttb-modal .ttb-sub{margin:0 0 16px;color:#6b7280;font-size:14px}',
-      '.ttb-field{margin-bottom:12px;display:flex;flex-direction:column;gap:4px}',
-      '.ttb-field label{font-size:13px;font-weight:600;color:#374151}',
-      '.ttb-field input,.ttb-field select{padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;width:100%}',
-      '.ttb-actions{display:flex;gap:10px;margin-top:8px}',
-      '.ttb-actions button{flex:1;padding:10px;border-radius:8px;border:0;font-size:14px;font-weight:600;cursor:pointer}',
-      '.ttb-submit{background:#0f766e;color:#fff}',
-      '.ttb-submit:disabled{opacity:.6;cursor:default}',
-      '.ttb-cancel{background:#e5e7eb;color:#374151}',
-      '.ttb-error{color:#b91c1c;font-size:13px;margin:4px 0 0;min-height:16px}',
-      '.ttb-ok{color:#166534;font-size:14px;text-align:center;padding:8px 0}',
-    ].join('');
-    var style = el('style', { id: 'ttb-styles' });
-    style.appendChild(document.createTextNode(css));
-    document.head.appendChild(style);
+  function dateLabel(day) {
+    var p = (day.date || '').split('-');
+    var roDay = RO_DAYS[day.dayOfWeek] || titleCase(day.dayOfWeek || '');
+    if (p.length === 3) return roDay + ', ' + Number(p[2]) + ' ' + RO_MONTHS[Number(p[1]) - 1];
+    return roDay;
   }
 
-  function App(root) {
-    this.root = root;
-    this.days = [];
-    this.idx = 0;
-    this.load();
+  function isPast(day, hour) {
+    if (day.dayIdx !== 0) return false;
+    var now = new Date();
+    return hour < now.getHours();
   }
 
-  App.prototype.load = function () {
-    var self = this;
-    this.root.innerHTML = '';
-    this.root.appendChild(el('div', { class: 'ttb-msg', text: 'Se încarcă disponibilitatea…' }));
+  function cellHtml(day, row, court) {
+    var booked = court === 1 ? row.court1 : row.court2;
+    if (isPast(day, row.hour)) {
+      return '<button disabled aria-label="Trecut" class="' + BTN_BASE + ' bg-white/[0.02] border-white/5 cursor-not-allowed"></button>';
+    }
+    if (booked) {
+      return '<button disabled aria-label="Ocupat" class="' + BTN_BASE + ' bg-rose-400/30 border-rose-300/40 cursor-not-allowed"></button>';
+    }
+    return '<button data-ttb-free data-court="' + court + '" data-time="' + row.time + '" data-label="' + row.label +
+      '" aria-label="Liber - apasă pentru rezervare" class="' + BTN_BASE +
+      ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 hover:scale-[1.02] cursor-pointer"></button>';
+  }
+
+  function rowHtml(day, row) {
+    var past = isPast(day, row.hour);
+    var oraCls = 'px-3 py-2.5 text-xs sm:text-sm font-medium border-r border-white/10 bg-white/[0.02] ' + (past ? 'text-foreground/30' : 'text-foreground/80');
+    return '<div class="grid border-b border-white/5 last:border-b-0" style="' + GRID_COLS + '">' +
+      '<div class="' + oraCls + '">' + row.label + '</div>' +
+      cellHtml(day, row, 1) + cellHtml(day, row, 2) + '</div>';
+  }
+
+  function cardHtml(day) {
+    var rows = hoursFor(day).map(function (r) { return rowHtml(day, r); }).join('');
+    return '' +
+      '<div class="flex items-center justify-between gap-2 flex-wrap mb-5">' +
+        '<h3 class="text-lg sm:text-xl font-bold flex items-center gap-2">' + CAL_SVG + HEADING + '</h3>' +
+        '<div class="flex items-center gap-1.5">' +
+          '<button data-ttb-prev ' + (state.idx === 0 ? 'disabled' : '') + ' class="w-9 h-9 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors">' + CHEV_L + '</button>' +
+          '<div class="px-3 sm:px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-xs sm:text-sm font-bold uppercase tracking-wider min-w-[170px] sm:min-w-[220px] text-center text-foreground">' + dateLabel(day) + '</div>' +
+          '<button data-ttb-next ' + (state.idx === state.days.length - 1 ? 'disabled' : '') + ' class="w-9 h-9 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors">' + CHEV_R + '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="flex items-center gap-4 text-xs text-muted-foreground mb-3 flex-wrap">' +
+        '<span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-emerald-400/70 border border-emerald-300/60"></span> Liber</span>' +
+        '<span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-rose-400/60 border border-rose-300/60"></span> Ocupat</span>' +
+        '<span class="ml-auto hidden sm:inline">Apasă o casetă liberă ca să rezervi</span>' +
+      '</div>' +
+      '<div class="overflow-x-auto scrollbar-thin -mx-1 px-1">' +
+        '<div class="min-w-[420px] rounded-xl overflow-hidden border border-white/10">' +
+          '<div class="grid bg-white/[0.06] border-b border-white/10" style="' + GRID_COLS + '">' +
+            '<div class="p-3 text-xs font-bold uppercase tracking-wider text-foreground/90 border-r border-white/10">Ora</div>' +
+            '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 1</div>' +
+            '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 2 (Indoor)</div>' +
+          '</div>' + rows +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderInto(card) {
+    var day = state.days[state.idx];
+    if (!day) return;
+    card.setAttribute('data-ttb', '1');
+    card.innerHTML = cardHtml(day);
+    var prev = card.querySelector('[data-ttb-prev]');
+    var next = card.querySelector('[data-ttb-next]');
+    if (prev) prev.addEventListener('click', function () { if (state.idx > 0) { state.idx--; renderInto(card); } });
+    if (next) next.addEventListener('click', function () { if (state.idx < state.days.length - 1) { state.idx++; renderInto(card); } });
+    card.querySelectorAll('[data-ttb-free]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        openBooking(day, { time: btn.getAttribute('data-time'), label: btn.getAttribute('data-label'), }, Number(btn.getAttribute('data-court')));
+      });
+    });
+  }
+
+  function findCard() {
+    if (CARD_SEL) { var e = document.querySelector(CARD_SEL); if (e) return e; }
+    var hs = document.querySelectorAll('h1,h2,h3,h4,h5');
+    for (var i = 0; i < hs.length; i++) {
+      if ((hs[i].textContent || '').indexOf(HEADING) !== -1) {
+        return hs[i].closest('.glass-card') || hs[i].parentElement;
+      }
+    }
+    return null;
+  }
+
+  function mount() {
+    var card = findCard();
+    if (!card) return false;
+    renderInto(card);
+    return true;
+  }
+
+  function load() {
     fetch(API + '/api/schedule', { headers: { Accept: 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        self.days = (data && data.days) || [];
-        if (!self.days.length) {
-          self.root.innerHTML = '';
-          self.root.appendChild(el('div', { class: 'ttb-msg', text: 'Programul nu este disponibil momentan.' }));
-          return;
-        }
-        if (self.idx >= self.days.length) self.idx = 0;
-        self.render();
+        state.days = (data && data.days) || [];
+        if (state.idx >= state.days.length) state.idx = 0;
+        mount();
       })
-      .catch(function () {
-        self.root.innerHTML = '';
-        self.root.appendChild(el('div', { class: 'ttb-msg', text: 'Nu am putut încărca disponibilitatea.' }));
-      });
-  };
+      .catch(function () { /* leave the original card in place on failure */ });
+  }
 
-  App.prototype.render = function () {
-    var self = this;
-    var day = this.days[this.idx];
-    this.root.innerHTML = '';
+  // ---- Booking modal (self-styled; no equivalent in the original design) ----
+  function openBooking(day, row, court) {
+    var overlay = el('div', { style: 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:99999;padding:16px;', onclick: function (e) { if (e.target === overlay) close(); } });
+    function close() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
 
-    var nav = el('div', { class: 'ttb-nav' }, [
-      el('button', { text: '‹', 'aria-label': 'Ziua anterioară', disabled: this.idx === 0 ? '' : null, onclick: function () { self.idx--; self.render(); } }),
-      el('div', { class: 'ttb-day', text: titleCase(day.dayOfWeek) + ' • ' + self.prettyDate(day.date) }),
-      el('button', { text: '›', 'aria-label': 'Ziua următoare', disabled: this.idx === this.days.length - 1 ? '' : null, onclick: function () { self.idx++; self.render(); } }),
-    ]);
-    this.root.appendChild(nav);
+    var INPUT = 'width:100%;padding:9px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;font-size:14px;font-family:inherit;';
+    var LABEL = 'font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:4px;display:block;';
 
-    var table = el('table', { class: 'ttb-table' });
-    table.appendChild(el('thead', {}, [el('tr', {}, [
-      el('th', { text: 'Ora' }), el('th', { text: 'Teren 1' }), el('th', { text: 'Teren 2' }),
-    ])]));
-    var tbody = el('tbody');
-    hoursFor(day).forEach(function (row) {
-      tbody.appendChild(el('tr', {}, [
-        el('td', { class: 'ttb-ora', text: row.label }),
-        self.courtCell(day, row, 1, row.court1),
-        self.courtCell(day, row, 2, row.court2),
-      ]));
-    });
-    table.appendChild(tbody);
-    this.root.appendChild(table);
+    var name = el('input', { type: 'text', placeholder: 'Numele tău', style: INPUT });
+    var email = el('input', { type: 'email', placeholder: 'email@exemplu.ro', style: INPUT });
+    var phone = el('input', { type: 'tel', placeholder: '07xx xxx xxx', style: INPUT });
+    var duration = el('select', { style: INPUT }, DURATIONS.map(function (d) { return el('option', { value: d.value, text: d.label }); }));
+    var errorBox = el('p', { style: 'color:#fca5a5;font-size:13px;margin:6px 0 0;min-height:16px;' });
+    var submit = el('button', { text: 'Rezervă', style: 'flex:1;padding:11px;border-radius:8px;border:0;font-size:14px;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(to right,#7c3aed,#d946ef);' });
+    var cancel = el('button', { text: 'Anulează', onclick: close, style: 'flex:1;padding:11px;border-radius:8px;border:0;font-size:14px;font-weight:600;cursor:pointer;color:#e5e7eb;background:rgba(255,255,255,.1);' });
 
-    this.root.appendChild(el('div', { class: 'ttb-legend' }, [
-      el('span', {}, [el('i', { class: 'ttb-dot', style: 'background:#dcfce7' }), document.createTextNode('Liber (apasă pentru a rezerva)')]),
-      el('span', {}, [el('i', { class: 'ttb-dot', style: 'background:#fee2e2' }), document.createTextNode('Ocupat')]),
-    ]));
-  };
+    function field(t, input) { return el('div', { style: 'margin-bottom:12px;' }, [el('label', { text: t, style: LABEL }), input]); }
 
-  App.prototype.courtCell = function (day, row, court, booked) {
-    var self = this;
-    if (booked) return el('td', { class: 'ttb-cell ttb-booked', text: 'Ocupat' });
-    return el('td', {
-      class: 'ttb-cell ttb-free',
-      text: 'Liber',
-      onclick: function () { self.openBooking(day, row, court); },
-    });
-  };
-
-  App.prototype.prettyDate = function (iso) {
-    if (!iso) return '';
-    var p = iso.split('-');
-    return p[2] + '.' + p[1] + '.' + p[0];
-  };
-
-  App.prototype.openBooking = function (day, row, court) {
-    var self = this;
-    var overlay = el('div', { class: 'ttb-overlay', onclick: function (e) { if (e.target === overlay) document.body.removeChild(overlay); } });
-
-    var name = el('input', { type: 'text', placeholder: 'Numele tău', required: '' });
-    var email = el('input', { type: 'email', placeholder: 'email@exemplu.ro' });
-    var phone = el('input', { type: 'tel', placeholder: '07xx xxx xxx' });
-    var duration = el('select', {}, DURATIONS.map(function (d) { return el('option', { value: d.value, text: d.label }); }));
-    var errorBox = el('p', { class: 'ttb-error' });
-    var submit = el('button', { class: 'ttb-submit', text: 'Rezervă' });
-
-    function field(labelText, input) {
-      return el('div', { class: 'ttb-field' }, [el('label', { text: labelText }), input]);
-    }
-
+    var courtName = court === 2 ? 'Teren 2 (Indoor)' : 'Teren 1';
     submit.addEventListener('click', function () {
       errorBox.textContent = '';
       if (!name.value.trim()) { errorBox.textContent = 'Te rugăm să introduci numele.'; return; }
-      submit.disabled = true; submit.textContent = 'Se trimite…';
+      submit.disabled = true; submit.textContent = 'Se trimite…'; submit.style.opacity = '.7';
       fetch(API + '/api/reserve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: day.date,
-          time: row.time,
-          duration: Number(duration.value),
-          court: court,
-          name: name.value.trim(),
-          email: email.value.trim(),
-          phone: phone.value.trim(),
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: day.date, time: row.time, duration: Number(duration.value), court: court, name: name.value.trim(), email: email.value.trim(), phone: phone.value.trim() }),
       })
         .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
         .then(function (res) {
           if (res.body && res.body.ok) {
-            var box = overlay.querySelector('.ttb-modal');
-            box.innerHTML = '';
-            box.appendChild(el('h3', { text: 'Rezervare confirmată!' }));
-            box.appendChild(el('p', { class: 'ttb-ok', text: 'Teren ' + court + ' • ' + titleCase(day.dayOfWeek) + ' • ' + row.label }));
-            box.appendChild(el('div', { class: 'ttb-actions' }, [
-              el('button', { class: 'ttb-submit', text: 'Închide', onclick: function () { document.body.removeChild(overlay); self.load(); } }),
-            ]));
+            modal.innerHTML = '';
+            modal.appendChild(el('h3', { text: 'Rezervare confirmată!', style: 'margin:0 0 8px;font-size:18px;color:#fff;' }));
+            modal.appendChild(el('p', { text: courtName + ' • ' + dateLabel(day) + ' • ora ' + row.label, style: 'margin:0 0 16px;color:#a7f3d0;font-size:14px;' }));
+            modal.appendChild(el('button', { text: 'Închide', onclick: function () { close(); load(); }, style: 'width:100%;padding:11px;border-radius:8px;border:0;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(to right,#7c3aed,#d946ef);' }));
           } else {
             errorBox.textContent = translateError(res.body && res.body.error);
-            submit.disabled = false; submit.textContent = 'Rezervă';
+            submit.disabled = false; submit.textContent = 'Rezervă'; submit.style.opacity = '1';
           }
         })
-        .catch(function () {
-          errorBox.textContent = 'Conexiune eșuată. Încearcă din nou.';
-          submit.disabled = false; submit.textContent = 'Rezervă';
-        });
+        .catch(function () { errorBox.textContent = 'Conexiune eșuată. Încearcă din nou.'; submit.disabled = false; submit.textContent = 'Rezervă'; submit.style.opacity = '1'; });
     });
 
-    var modal = el('div', { class: 'ttb-modal' }, [
-      el('h3', { text: 'Rezervă terenul' }),
-      el('p', { class: 'ttb-sub', text: 'Teren ' + court + ' • ' + titleCase(day.dayOfWeek) + ' ' + self.prettyDate(day.date) + ' • ora ' + row.label }),
-      field('Nume *', name),
-      field('Email', email),
-      field('Telefon', phone),
-      field('Durată', duration),
+    var modal = el('div', { style: 'background:#15131f;color:#e5e7eb;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:22px;max-width:380px;width:100%;font-family:inherit;box-shadow:0 20px 60px rgba(0,0,0,.5);' }, [
+      el('h3', { text: 'Rezervă terenul', style: 'margin:0 0 4px;font-size:18px;color:#fff;' }),
+      el('p', { text: courtName + ' • ' + dateLabel(day) + ' • ora ' + row.label, style: 'margin:0 0 16px;color:#9ca3af;font-size:14px;' }),
+      field('Nume *', name), field('Email', email), field('Telefon', phone), field('Durată', duration),
       errorBox,
-      el('div', { class: 'ttb-actions' }, [
-        el('button', { class: 'ttb-cancel', text: 'Anulează', onclick: function () { document.body.removeChild(overlay); } }),
-        submit,
-      ]),
+      el('div', { style: 'display:flex;gap:10px;margin-top:8px;' }, [cancel, submit]),
     ]);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
     name.focus();
-  };
-
-  // Render our widget into `root`, clearing any pre-existing (e.g. mock) content.
-  function takeOver(root) {
-    if (root.classList.contains('ttb')) return; // already ours
-    root.classList.add('ttb');
-    root.innerHTML = '';
-    injectStyles();
-    new App(root);
   }
 
-  // If the mount lives inside a framework-managed tree (e.g. a React SPA's
-  // #root), a re-render may replace our node. Watch the parent and re-assert.
+  // Re-assert over the original card if the SPA re-renders it.
   function guard() {
-    var parent = (document.querySelector(MOUNT_SEL) || {}).parentNode;
-    if (!parent || typeof MutationObserver === 'undefined') return;
+    if (typeof MutationObserver === 'undefined') return;
+    var scope = document.getElementById('booking-system') || document.body;
     var obs = new MutationObserver(function () {
-      var live = document.querySelector(MOUNT_SEL);
-      if (live && !live.classList.contains('ttb')) takeOver(live);
+      var card = findCard();
+      if (card && card.getAttribute('data-ttb') !== '1' && state.days.length) renderInto(card);
     });
-    obs.observe(parent, { childList: true });
+    obs.observe(scope, { childList: true, subtree: true });
   }
 
   function init() {
-    var root = document.querySelector(MOUNT_SEL);
-    if (!root) {
-      // Fall back to appending a container at the end of <main> or <body>.
-      root = el('div', { id: 'booking-system' });
-      (document.querySelector('main') || document.body).appendChild(root);
-    }
-    takeOver(root);
-    guard();
+    var tries = 0;
+    (function waitForCard() {
+      if (findCard()) { load(); guard(); return; }
+      if (tries++ < 20) setTimeout(waitForCard, 150); // let the SPA render first
+    })();
   }
 
-  // Run after the host app has rendered (window load), so we replace its
-  // markup rather than getting overwritten by it.
   if (document.readyState === 'complete') init();
   else window.addEventListener('load', init);
 })();
