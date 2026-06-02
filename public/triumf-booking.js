@@ -33,7 +33,8 @@
   var CHEV_L = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left w-4 h-4"><path d="m15 18-6-6 6-6"></path></svg>';
   var CHEV_R = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right w-4 h-4"><path d="m9 18 6-6-6-6"></path></svg>';
 
-  var state = { days: [], idx: 0 };
+  // status: 'loading' | 'ready' | 'error'
+  var state = { days: [], idx: 0, status: 'loading' };
 
   function pad(n) { return String(n).padStart(2, '0'); }
   function titleCase(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s; }
@@ -60,8 +61,6 @@
     return node;
   }
 
-  // Group 30-min slots into hourly rows; a court is booked for the hour if any
-  // 30-min slot within it is booked.
   function hoursFor(day) {
     var map = {};
     day.slots.forEach(function (s) {
@@ -84,8 +83,26 @@
 
   function isPast(day, hour) {
     if (day.dayIdx !== 0) return false;
-    var now = new Date();
-    return hour < now.getHours();
+    return hour < new Date().getHours();
+  }
+
+  function headerHtml(dateText, prevDisabled, nextDisabled) {
+    return '<div class="flex items-center justify-between gap-2 flex-wrap mb-5">' +
+      '<h3 class="text-lg sm:text-xl font-bold flex items-center gap-2">' + CAL_SVG + HEADING + '</h3>' +
+      '<div class="flex items-center gap-1.5">' +
+        '<button data-ttb-prev ' + (prevDisabled ? 'disabled' : '') + ' class="w-9 h-9 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors">' + CHEV_L + '</button>' +
+        '<div class="px-3 sm:px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-xs sm:text-sm font-bold uppercase tracking-wider min-w-[170px] sm:min-w-[220px] text-center text-foreground">' + dateText + '</div>' +
+        '<button data-ttb-next ' + (nextDisabled ? 'disabled' : '') + ' class="w-9 h-9 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors">' + CHEV_R + '</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function legendHtml() {
+    return '<div class="flex items-center gap-4 text-xs text-muted-foreground mb-3 flex-wrap">' +
+      '<span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-emerald-400/70 border border-emerald-300/60"></span> Liber</span>' +
+      '<span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-rose-400/60 border border-rose-300/60"></span> Ocupat</span>' +
+      '<span class="ml-auto hidden sm:inline">Apasă o casetă liberă ca să rezervi</span>' +
+    '</div>';
   }
 
   function cellHtml(day, row, court) {
@@ -109,45 +126,59 @@
       cellHtml(day, row, 1) + cellHtml(day, row, 2) + '</div>';
   }
 
-  function cardHtml(day) {
-    var rows = hoursFor(day).map(function (r) { return rowHtml(day, r); }).join('');
-    return '' +
-      '<div class="flex items-center justify-between gap-2 flex-wrap mb-5">' +
-        '<h3 class="text-lg sm:text-xl font-bold flex items-center gap-2">' + CAL_SVG + HEADING + '</h3>' +
-        '<div class="flex items-center gap-1.5">' +
-          '<button data-ttb-prev ' + (state.idx === 0 ? 'disabled' : '') + ' class="w-9 h-9 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors">' + CHEV_L + '</button>' +
-          '<div class="px-3 sm:px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-xs sm:text-sm font-bold uppercase tracking-wider min-w-[170px] sm:min-w-[220px] text-center text-foreground">' + dateLabel(day) + '</div>' +
-          '<button data-ttb-next ' + (state.idx === state.days.length - 1 ? 'disabled' : '') + ' class="w-9 h-9 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors">' + CHEV_R + '</button>' +
-        '</div>' +
+  function tableHtml(rowsHtml) {
+    return '<div class="overflow-x-auto scrollbar-thin -mx-1 px-1">' +
+      '<div class="min-w-[420px] rounded-xl overflow-hidden border border-white/10">' +
+        '<div class="grid bg-white/[0.06] border-b border-white/10" style="' + GRID_COLS + '">' +
+          '<div class="p-3 text-xs font-bold uppercase tracking-wider text-foreground/90 border-r border-white/10">Ora</div>' +
+          '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 1</div>' +
+          '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 2 (Indoor)</div>' +
+        '</div>' + rowsHtml +
       '</div>' +
-      '<div class="flex items-center gap-4 text-xs text-muted-foreground mb-3 flex-wrap">' +
-        '<span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-emerald-400/70 border border-emerald-300/60"></span> Liber</span>' +
-        '<span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-rose-400/60 border border-rose-300/60"></span> Ocupat</span>' +
-        '<span class="ml-auto hidden sm:inline">Apasă o casetă liberă ca să rezervi</span>' +
-      '</div>' +
-      '<div class="overflow-x-auto scrollbar-thin -mx-1 px-1">' +
-        '<div class="min-w-[420px] rounded-xl overflow-hidden border border-white/10">' +
-          '<div class="grid bg-white/[0.06] border-b border-white/10" style="' + GRID_COLS + '">' +
-            '<div class="p-3 text-xs font-bold uppercase tracking-wider text-foreground/90 border-r border-white/10">Ora</div>' +
-            '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 1</div>' +
-            '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 2 (Indoor)</div>' +
-          '</div>' + rows +
-        '</div>' +
-      '</div>';
+    '</div>';
   }
 
-  function renderInto(card) {
-    var day = state.days[state.idx];
-    if (!day) return;
+  // A few shimmering skeleton rows shown while data loads.
+  function skeletonRows() {
+    var bar = '<div class="h-4 rounded bg-white/10 animate-pulse"></div>';
+    var cell = '<div class="m-1 h-10 sm:h-11 rounded-md bg-white/[0.05] animate-pulse"></div>';
+    var rows = '';
+    for (var i = 0; i < 6; i++) {
+      rows += '<div class="grid border-b border-white/5 last:border-b-0" style="' + GRID_COLS + '">' +
+        '<div class="px-3 py-2.5 border-r border-white/10 bg-white/[0.02]">' + bar + '</div>' + cell + cell + '</div>';
+    }
+    return rows;
+  }
+
+  function render(card) {
     card.setAttribute('data-ttb', '1');
-    card.innerHTML = cardHtml(day);
+
+    if (state.status === 'loading') {
+      card.innerHTML = headerHtml('Se încarcă…', true, true) + legendHtml() + tableHtml(skeletonRows());
+      return;
+    }
+    if (state.status === 'error') {
+      card.innerHTML = headerHtml('—', true, true) +
+        '<div class="py-10 text-center text-sm text-muted-foreground">Nu am putut încărca disponibilitatea. Reîncarcă pagina.</div>';
+      return;
+    }
+    var day = state.days[state.idx];
+    if (!day) {
+      card.innerHTML = headerHtml('—', true, true) +
+        '<div class="py-10 text-center text-sm text-muted-foreground">Programul nu este disponibil momentan.</div>';
+      return;
+    }
+
+    var rows = hoursFor(day).map(function (r) { return rowHtml(day, r); }).join('');
+    card.innerHTML = headerHtml(dateLabel(day), state.idx === 0, state.idx === state.days.length - 1) + legendHtml() + tableHtml(rows);
+
     var prev = card.querySelector('[data-ttb-prev]');
     var next = card.querySelector('[data-ttb-next]');
-    if (prev) prev.addEventListener('click', function () { if (state.idx > 0) { state.idx--; renderInto(card); } });
-    if (next) next.addEventListener('click', function () { if (state.idx < state.days.length - 1) { state.idx++; renderInto(card); } });
+    if (prev) prev.addEventListener('click', function () { if (state.idx > 0) { state.idx--; render(card); } });
+    if (next) next.addEventListener('click', function () { if (state.idx < state.days.length - 1) { state.idx++; render(card); } });
     card.querySelectorAll('[data-ttb-free]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        openBooking(day, { time: btn.getAttribute('data-time'), label: btn.getAttribute('data-label'), }, Number(btn.getAttribute('data-court')));
+        openBooking(day, { time: btn.getAttribute('data-time'), label: btn.getAttribute('data-label') }, Number(btn.getAttribute('data-court')));
       });
     });
   }
@@ -165,9 +196,7 @@
 
   function mount() {
     var card = findCard();
-    if (!card) return false;
-    renderInto(card);
-    return true;
+    if (card) render(card);
   }
 
   function load() {
@@ -176,9 +205,10 @@
       .then(function (data) {
         state.days = (data && data.days) || [];
         if (state.idx >= state.days.length) state.idx = 0;
+        state.status = 'ready';
         mount();
       })
-      .catch(function () { /* leave the original card in place on failure */ });
+      .catch(function () { state.status = 'error'; mount(); });
   }
 
   // ---- Booking modal (self-styled; no equivalent in the original design) ----
@@ -214,7 +244,7 @@
             modal.innerHTML = '';
             modal.appendChild(el('h3', { text: 'Rezervare confirmată!', style: 'margin:0 0 8px;font-size:18px;color:#fff;' }));
             modal.appendChild(el('p', { text: courtName + ' • ' + dateLabel(day) + ' • ora ' + row.label, style: 'margin:0 0 16px;color:#a7f3d0;font-size:14px;' }));
-            modal.appendChild(el('button', { text: 'Închide', onclick: function () { close(); load(); }, style: 'width:100%;padding:11px;border-radius:8px;border:0;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(to right,#7c3aed,#d946ef);' }));
+            modal.appendChild(el('button', { text: 'Închide', onclick: function () { close(); state.status = 'loading'; mount(); load(); }, style: 'width:100%;padding:11px;border-radius:8px;border:0;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(to right,#7c3aed,#d946ef);' }));
           } else {
             errorBox.textContent = translateError(res.body && res.body.error);
             submit.disabled = false; submit.textContent = 'Rezervă'; submit.style.opacity = '1';
@@ -241,7 +271,7 @@
     var scope = document.getElementById('booking-system') || document.body;
     var obs = new MutationObserver(function () {
       var card = findCard();
-      if (card && card.getAttribute('data-ttb') !== '1' && state.days.length) renderInto(card);
+      if (card && card.getAttribute('data-ttb') !== '1') render(card);
     });
     obs.observe(scope, { childList: true, subtree: true });
   }
@@ -249,8 +279,8 @@
   function init() {
     var tries = 0;
     (function waitForCard() {
-      if (findCard()) { load(); guard(); return; }
-      if (tries++ < 20) setTimeout(waitForCard, 150); // let the SPA render first
+      if (findCard()) { mount(); load(); guard(); return; } // show loading immediately, then fetch
+      if (tries++ < 20) setTimeout(waitForCard, 150);
     })();
   }
 
