@@ -63,6 +63,16 @@
     return node;
   }
 
+  function ensureStyles() {
+    if (document.getElementById('ttb-modal-style')) return;
+    var s = document.createElement('style');
+    s.id = 'ttb-modal-style';
+    s.textContent =
+      '@keyframes ttb-spin{to{transform:rotate(360deg)}}' +
+      '.ttb-spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,.18);border-top-color:#a78bfa;border-radius:50%;animation:ttb-spin .8s linear infinite}';
+    document.head.appendChild(s);
+  }
+
   function hoursFor(day) {
     var map = {};
     day.slots.forEach(function (s) {
@@ -215,6 +225,7 @@
 
   // ---- Booking modal (self-styled; no equivalent in the original design) ----
   function openBooking(day, row, court) {
+    ensureStyles();
     var overlay = el('div', { style: 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:99999;padding:16px;', onclick: function (e) { if (e.target === overlay) close(); } });
     function close() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
 
@@ -232,35 +243,55 @@
     function field(t, input) { return el('div', { style: 'margin-bottom:12px;' }, [el('label', { text: t, style: LABEL }), input]); }
 
     var courtName = court === 2 ? 'Teren 2 (Indoor)' : 'Teren 1';
+    var summary = courtName + ' • ' + dateLabel(day) + ' • ora ' + row.label;
+
+    // Spinner overlay shown over the modal while the request is in flight.
+    var loadingLayer = el('div', { style: 'position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(21,19,31,.9);border-radius:16px;z-index:1;' }, [
+      el('div', { class: 'ttb-spinner' }),
+      el('p', { text: 'Se trimite rezervarea…', style: 'margin:0;color:#cbd5e1;font-size:14px;' }),
+    ]);
+    function setBusy(on) {
+      loadingLayer.style.display = on ? 'flex' : 'none';
+      [name, email, phone, duration, submit, cancel].forEach(function (f) { f.disabled = on; });
+    }
+
+    function showSuccess() {
+      modal.style.position = 'static';
+      modal.innerHTML =
+        '<div style="text-align:center;">' +
+          '<div style="width:56px;height:56px;border-radius:50%;background:rgba(16,185,129,.15);display:flex;align-items:center;justify-content:center;margin:4px auto 14px;">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>' +
+          '</div>' +
+          '<h3 style="margin:0 0 6px;font-size:18px;color:#fff;">Rezervare confirmată!</h3>' +
+          '<p style="margin:0 0 18px;color:#a7f3d0;font-size:14px;">' + summary + '</p>' +
+          '<button data-ttb-close style="width:100%;padding:11px;border-radius:8px;border:0;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(to right,#7c3aed,#d946ef);">Închide</button>' +
+        '</div>';
+      modal.querySelector('[data-ttb-close]').addEventListener('click', function () { close(); state.status = 'loading'; mount(); load(); });
+    }
+
     submit.addEventListener('click', function () {
       errorBox.textContent = '';
       if (!name.value.trim()) { errorBox.textContent = 'Te rugăm să introduci numele.'; return; }
-      submit.disabled = true; submit.textContent = 'Se trimite…'; submit.style.opacity = '.7';
+      setBusy(true);
       fetch(API + '/api/reserve', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: day.date, time: row.time, duration: Number(duration.value), court: court, name: name.value.trim(), email: email.value.trim(), phone: phone.value.trim() }),
       })
         .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
         .then(function (res) {
-          if (res.body && res.body.ok) {
-            modal.innerHTML = '';
-            modal.appendChild(el('h3', { text: 'Rezervare confirmată!', style: 'margin:0 0 8px;font-size:18px;color:#fff;' }));
-            modal.appendChild(el('p', { text: courtName + ' • ' + dateLabel(day) + ' • ora ' + row.label, style: 'margin:0 0 16px;color:#a7f3d0;font-size:14px;' }));
-            modal.appendChild(el('button', { text: 'Închide', onclick: function () { close(); state.status = 'loading'; mount(); load(); }, style: 'width:100%;padding:11px;border-radius:8px;border:0;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(to right,#7c3aed,#d946ef);' }));
-          } else {
-            errorBox.textContent = translateError(res.body && res.body.error);
-            submit.disabled = false; submit.textContent = 'Rezervă'; submit.style.opacity = '1';
-          }
+          if (res.body && res.body.ok) { showSuccess(); }
+          else { setBusy(false); errorBox.textContent = translateError(res.body && res.body.error); }
         })
-        .catch(function () { errorBox.textContent = 'Conexiune eșuată. Încearcă din nou.'; submit.disabled = false; submit.textContent = 'Rezervă'; submit.style.opacity = '1'; });
+        .catch(function () { setBusy(false); errorBox.textContent = 'Conexiune eșuată. Încearcă din nou.'; });
     });
 
-    var modal = el('div', { style: 'background:#15131f;color:#e5e7eb;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:22px;max-width:380px;width:100%;font-family:inherit;box-shadow:0 20px 60px rgba(0,0,0,.5);' }, [
+    var modal = el('div', { style: 'position:relative;background:#15131f;color:#e5e7eb;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:22px;max-width:380px;width:100%;font-family:inherit;box-shadow:0 20px 60px rgba(0,0,0,.5);' }, [
       el('h3', { text: 'Rezervă terenul', style: 'margin:0 0 4px;font-size:18px;color:#fff;' }),
-      el('p', { text: courtName + ' • ' + dateLabel(day) + ' • ora ' + row.label, style: 'margin:0 0 16px;color:#9ca3af;font-size:14px;' }),
+      el('p', { text: summary, style: 'margin:0 0 16px;color:#9ca3af;font-size:14px;' }),
       field('Nume *', name), field('Email', email), field('Telefon', phone), field('Durată', duration),
       errorBox,
       el('div', { style: 'display:flex;gap:10px;margin-top:8px;' }, [cancel, submit]),
+      loadingLayer,
     ]);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
