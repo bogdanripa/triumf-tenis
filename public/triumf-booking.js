@@ -127,7 +127,7 @@
     return '<div class="flex items-center gap-4 text-xs text-muted-foreground mb-3 flex-wrap">' +
       '<span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-emerald-400/70 border border-emerald-300/60"></span> Liber</span>' +
       '<span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-rose-400/60 border border-rose-300/60"></span> Ocupat</span>' +
-      '<span class="ml-auto hidden sm:inline">Apasă o casetă liberă ca să rezervi</span>' +
+      '<span class="ml-auto hidden sm:inline">Click pe un interval pentru rezervare</span>' +
     '</div>';
   }
 
