@@ -27,7 +27,6 @@
   var RO_MONTHS = ['ianuarie', 'februarie', 'martie', 'aprilie', 'mai', 'iunie', 'iulie', 'august', 'septembrie', 'octombrie', 'noiembrie', 'decembrie'];
   var DURATIONS = [ { value: 60, label: '1 oră' }, { value: 90, label: '1 oră 30 min' }, { value: 120, label: '2 ore' } ];
 
-  var BTN_BASE = 'h-10 sm:h-11 m-1 rounded-md border transition-all flex items-center justify-center gap-1 text-[10px]';
   var GRID_COLS = 'grid-template-columns: 80px repeat(2, 1fr);';
   var CAL_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-days w-5 h-5 text-violet-300"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>';
   var CHEV_L = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left w-4 h-4"><path d="m15 18-6-6 6-6"></path></svg>';
@@ -87,11 +86,17 @@
 
   function fmt(min) { return pad(Math.floor(min / 60)) + ':' + pad(min % 60); }
 
-  // One row per 30-minute slot, in order.
-  function slotsFor(day) {
-    return (day.slots || []).slice().sort(function (a, b) { return a.time - b.time; }).map(function (s) {
-      return { time: s.time, start: fmt(s.time), label: fmt(s.time) + '-' + fmt(s.time + 30), court1: s.court1 === 'booked', court2: s.court2 === 'booked' };
-    });
+  // Map of slot-start-minute -> { c1, c2 } booked flags.
+  function slotMap(day) {
+    var m = {};
+    (day.slots || []).forEach(function (s) { m[s.time] = { c1: s.court1 === 'booked', c2: s.court2 === 'booked' }; });
+    return m;
+  }
+  // Distinct hours that have any slot.
+  function hoursOf(day) {
+    var set = {};
+    (day.slots || []).forEach(function (s) { set[Math.floor(s.time / 60)] = 1; });
+    return Object.keys(set).map(Number).sort(function (a, b) { return a - b; });
   }
 
   function dateLabel(day) {
@@ -126,25 +131,34 @@
     '</div>';
   }
 
-  function cellHtml(day, slot, court) {
-    var booked = court === 1 ? slot.court1 : slot.court2;
-    if (isPast(day, slot.time)) {
-      return '<button disabled aria-label="Trecut" class="' + BTN_BASE + ' bg-white/[0.02] border-white/5 cursor-not-allowed"></button>';
-    }
-    if (booked) {
-      return '<button disabled aria-label="Ocupat" class="' + BTN_BASE + ' bg-rose-400/30 border-rose-300/40 cursor-not-allowed"></button>';
-    }
-    return '<button data-ttb-free data-court="' + court + '" data-time="' + slot.start + '" data-label="' + slot.label +
-      '" aria-label="Liber - apasă pentru rezervare" class="' + BTN_BASE +
-      ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 hover:scale-[1.02] cursor-pointer"></button>';
+  // One clickable half-box for a single 30-minute slot (upper = :00, lower = :30).
+  var HALF = 'h-6 sm:h-7 m-0.5 rounded border transition-all flex items-center justify-center text-[10px]';
+  function halfHtml(day, court, minutes, exists, booked) {
+    if (!exists) return '<div class="' + HALF + ' bg-white/[0.01] border-transparent"></div>';
+    if (isPast(day, minutes)) return '<div class="' + HALF + ' bg-white/[0.02] border-white/5"></div>';
+    if (booked) return '<div aria-label="Ocupat" class="' + HALF + ' bg-rose-400/30 border-rose-300/40"></div>';
+    return '<button data-ttb-free data-court="' + court + '" data-time="' + fmt(minutes) +
+      '" aria-label="Liber ' + fmt(minutes) + ' - apasă pentru rezervare" class="' + HALF +
+      ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 hover:scale-[1.03] cursor-pointer"></button>';
   }
 
-  function rowHtml(day, slot) {
-    var past = isPast(day, slot.time);
-    var oraCls = 'px-3 py-2.5 text-xs sm:text-sm font-medium border-r border-white/10 bg-white/[0.02] ' + (past ? 'text-foreground/30' : 'text-foreground/80');
+  function courtCellHtml(day, court, hour, map) {
+    var s00 = map[hour * 60], s30 = map[hour * 60 + 30];
+    var b00 = s00 && (court === 1 ? s00.c1 : s00.c2);
+    var b30 = s30 && (court === 1 ? s30.c1 : s30.c2);
+    return '<div class="flex flex-col justify-center px-0.5">' +
+      halfHtml(day, court, hour * 60, !!s00, b00) +
+      halfHtml(day, court, hour * 60 + 30, !!s30, b30) +
+    '</div>';
+  }
+
+  // One row per hour: hourly label on the left, two split half-boxes per court.
+  function rowHtml(day, hour, map) {
+    var hourPast = isPast(day, hour * 60 + 30); // whole hour gone once :30 is past
+    var oraCls = 'px-3 flex items-center text-xs sm:text-sm font-medium border-r border-white/10 bg-white/[0.02] ' + (hourPast ? 'text-foreground/30' : 'text-foreground/80');
     return '<div class="grid border-b border-white/5 last:border-b-0" style="' + GRID_COLS + '">' +
-      '<div class="' + oraCls + '">' + slot.label + '</div>' +
-      cellHtml(day, slot, 1) + cellHtml(day, slot, 2) + '</div>';
+      '<div class="' + oraCls + '">' + pad(hour) + '-' + pad(hour + 1) + '</div>' +
+      courtCellHtml(day, 1, hour, map) + courtCellHtml(day, 2, hour, map) + '</div>';
   }
 
   function tableHtml(rowsHtml) {
@@ -153,7 +167,7 @@
         '<div class="grid bg-white/[0.06] border-b border-white/10" style="' + GRID_COLS + '">' +
           '<div class="p-3 text-xs font-bold uppercase tracking-wider text-foreground/90 border-r border-white/10">Ora</div>' +
           '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 1</div>' +
-          '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 2 (Indoor)</div>' +
+          '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 2</div>' +
         '</div>' + rowsHtml +
       '</div>' +
     '</div>';
@@ -190,7 +204,8 @@
       return;
     }
 
-    var rows = slotsFor(day).map(function (s) { return rowHtml(day, s); }).join('');
+    var map = slotMap(day);
+    var rows = hoursOf(day).map(function (h) { return rowHtml(day, h, map); }).join('');
     card.innerHTML = headerHtml(dateLabel(day), state.idx === 0, state.idx === state.days.length - 1) + legendHtml() + tableHtml(rows);
 
     var prev = card.querySelector('[data-ttb-prev]');
@@ -199,7 +214,7 @@
     if (next) next.addEventListener('click', function () { if (state.idx < state.days.length - 1) { state.idx++; render(card); } });
     card.querySelectorAll('[data-ttb-free]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        openBooking(day, { time: btn.getAttribute('data-time'), label: btn.getAttribute('data-label') }, Number(btn.getAttribute('data-court')));
+        openBooking(day, btn.getAttribute('data-time'), Number(btn.getAttribute('data-court')));
       });
     });
   }
@@ -263,7 +278,7 @@
   }
 
   // ---- Booking modal (self-styled; no equivalent in the original design) ----
-  function openBooking(day, row, court) {
+  function openBooking(day, startTime, court) {
     ensureStyles();
     var overlay = el('div', { style: 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:99999;padding:16px;', onclick: function (e) { if (e.target === overlay) close(); } });
     function close() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
@@ -282,8 +297,8 @@
 
     function field(t, input) { return el('div', { style: 'margin-bottom:12px;' }, [el('label', { text: t, style: LABEL }), input]); }
 
-    var courtName = court === 2 ? 'Teren 2 (Indoor)' : 'Teren 1';
-    var startMin = (function () { var p = String(row.time).split(':'); return (+p[0]) * 60 + (+p[1] || 0); })();
+    var courtName = court === 2 ? 'Teren 2' : 'Teren 1';
+    var startMin = (function () { var p = String(startTime).split(':'); return (+p[0]) * 60 + (+p[1] || 0); })();
     function rangeText() { return fmt(startMin) + '-' + fmt(startMin + Number(duration.value)); }
     var summary = courtName + ' • ' + dateLabel(day) + ' • ' + rangeText();
 
@@ -319,7 +334,7 @@
       setBusy(true);
       fetch(API + '/api/reserve', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: day.date, time: row.time, duration: Number(duration.value), court: court, name: name.value.trim(), email: email.value.trim(), phone: phone.value.trim() }),
+        body: JSON.stringify({ date: day.date, time: startTime, duration: Number(duration.value), court: court, name: name.value.trim(), email: email.value.trim(), phone: phone.value.trim() }),
       })
         .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
         .then(function (res) {
