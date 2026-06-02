@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { clearSchedule, addToSchedule } from '@/lib/db';
+import { downloadExcelFile } from '@/lib/googleDrive';
 import * as XLSX from 'xlsx';
 
 export const months = ["IANUARIE", "FEBRUARIE", "MARTIE", "APRILIE", "MAI", "IUNIE", "IULIE", "AUGUST", "SEPTEMBRIE", "OCTOMBRIE", "NOIEMBRIE", "DECEMBRIE"];
@@ -217,4 +218,11 @@ export async function importSchedule(workbook: XLSX.WorkBook) {
   await clearSchedule();
   await addToSchedule(schedule);
   revalidatePath('/');
+}
+
+// Download the latest sheet from Drive and re-import it into MongoDB.
+export async function refreshSchedule() {
+  const buffer = await downloadExcelFile(process.env.GOOGLE_SPREADSHEET_ID);
+  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  await importSchedule(workbook);
 }

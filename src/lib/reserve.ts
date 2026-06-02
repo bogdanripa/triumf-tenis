@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
-import { downloadExcelFile, uploadExcelFile } from '@/lib/googleDrive';
+import { downloadExcelFile } from '@/lib/googleDrive';
+import { batchUpdateCells, colLetter, a1Range } from '@/lib/googleSheets';
 import { months, days, stripFormatting } from '@/lib/schedule';
 
 export type ReserveParams = {
@@ -14,7 +15,6 @@ export type ReserveParams = {
 };
 
 export type ReserveResult = {
-  buffer: Buffer | null; // the updated workbook (null on dryRun)
   location: number;      // 0 = Teren 1, 1 = Teren 2
   slots: string[];       // the slot labels that were booked, e.g. ["18-19", "19-20"]
 };
@@ -184,18 +184,15 @@ export async function makeReservation(p: ReserveParams): Promise<ReserveResult> 
   let details = [p.name, p.email, p.phone].map((x) => (x || '').trim()).filter(Boolean).join(' ');
   if (/x$/i.test(details)) details += '.';
 
-  for (const s of chosen.slots) {
-    ws.getCell(s.row, s.col).value = `${s.timeText} ${details}`;
-  }
-
-  const result: ReserveResult = { buffer: null, location: chosen.location, slots: chosen.slots.map((s) => s.timeText) };
-
   if (!p.dryRun) {
-    const out = await wb.xlsx.writeBuffer();
-    const outBuf = Buffer.from(out);
-    await uploadExcelFile(process.env.GOOGLE_SPREADSHEET_ID, outBuf);
-    result.buffer = outBuf;
+    // Surgical cell writes via the Sheets API: update only the booked cells,
+    // leaving all other cells and formatting untouched.
+    const updates = chosen.slots.map((s) => ({
+      range: a1Range(ws.name, `${colLetter(s.col)}${s.row}`),
+      value: `${s.timeText} ${details}`,
+    }));
+    await batchUpdateCells(process.env.GOOGLE_SPREADSHEET_ID, updates);
   }
 
-  return result;
+  return { location: chosen.location, slots: chosen.slots.map((s) => s.timeText) };
 }

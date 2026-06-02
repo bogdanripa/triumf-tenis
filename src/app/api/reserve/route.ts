@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as XLSX from 'xlsx';
 import { makeReservation } from '@/lib/reserve';
-import { importSchedule } from '@/lib/schedule';
+import { refreshSchedule } from '@/lib/schedule';
 import { corsHeaders, isAllowedOrigin } from '@/lib/cors';
 
 export const runtime = 'nodejs';
@@ -77,11 +76,10 @@ export async function POST(req: NextRequest) {
       dryRun: Boolean(dryRun),
     });
 
-    // Refresh MongoDB + home page cache from the just-written workbook so the
-    // reservation is reflected immediately (skipped on dryRun).
-    if (!dryRun && result.buffer) {
-      const wb = XLSX.read(result.buffer, { type: 'buffer' });
-      await importSchedule(wb);
+    // Refresh MongoDB + home page cache so the reservation is reflected
+    // immediately (skipped on dryRun).
+    if (!dryRun) {
+      await refreshSchedule();
     }
 
     return reply(
