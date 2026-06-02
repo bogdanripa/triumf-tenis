@@ -16,7 +16,10 @@ function allowedOrigins(): string[] {
 }
 
 export function isAllowedOrigin(origin: string | null): boolean {
-  return !!origin && allowedOrigins().includes(origin);
+  if (!origin) return false;
+  // Any localhost / 127.0.0.1 port is fine for local development.
+  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+  return allowedOrigins().includes(origin);
 }
 
 // Headers to attach to every response from the endpoint. Access-Control-Allow-
