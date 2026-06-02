@@ -25,7 +25,7 @@
 
   var RO_DAYS = { LUNI: 'luni', MARTI: 'marți', MIERCURI: 'miercuri', JOI: 'joi', VINERI: 'vineri', SAMBATA: 'sâmbătă', DUMINICA: 'duminică' };
   var RO_MONTHS = ['ianuarie', 'februarie', 'martie', 'aprilie', 'mai', 'iunie', 'iulie', 'august', 'septembrie', 'octombrie', 'noiembrie', 'decembrie'];
-  var DURATIONS = [ { value: 60, label: '1 oră' }, { value: 90, label: '1 oră 30 min' }, { value: 120, label: '2 ore' } ];
+  var DURATIONS = [ { value: 60, label: '1 oră' }, { value: 120, label: '2 ore' } ];
 
   var BTN_BASE = 'h-10 sm:h-11 m-1 rounded-md border transition-all flex items-center justify-center gap-1 text-[10px]';
   var GRID_COLS = 'grid-template-columns: 80px repeat(2, 1fr);';
@@ -44,6 +44,8 @@
     if (/already booked/i.test(msg)) return 'Acest interval este deja rezervat.';
     if (/No matching time slot/i.test(msg)) return 'Nu există un interval liber care să corespundă orei și duratei alese.';
     if (/No schedule found/i.test(msg)) return 'Programul pentru această zi nu este disponibil.';
+    if (/start on the hour/i.test(msg)) return 'Rezervările încep doar la ore fixe.';
+    if (/whole number of hours/i.test(msg)) return 'Durata trebuie să fie în ore întregi.';
     if (/Invalid|Missing/i.test(msg)) return 'Date invalide. Verifică informațiile introduse.';
     return msg;
   }

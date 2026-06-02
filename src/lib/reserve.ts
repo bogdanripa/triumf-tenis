@@ -165,6 +165,20 @@ export async function makeReservation(p: ReserveParams): Promise<ReserveResult> 
   }
   if (!chosen) throw new Error(lastReason);
 
+  // HARD RULE: never overwrite a cell that already holds a reservation.
+  // Re-read every target cell right before writing and confirm it is still a
+  // recognizable free slot (empty time range, or a trailing "x" cancellation).
+  // If any is not, abort without writing ANYTHING.
+  for (const s of chosen.slots) {
+    const cur = cellText(ws, s.row, s.col);
+    const m = cur.match(/^([\d:]+)-([\d:]+)(.*)$/);
+    const rest = m ? m[3].trim() : '';
+    const stillFree = !!m && (rest === '' || /x$/i.test(rest));
+    if (!stillFree) {
+      throw new Error('Time slot is already booked');
+    }
+  }
+
   // Build the cell text. Phone (digits) goes last so the value never ends in a
   // letter "x" — which the importer treats as a cancellation (=> free).
   let details = [p.name, p.email, p.phone].map((x) => (x || '').trim()).filter(Boolean).join(' ');
