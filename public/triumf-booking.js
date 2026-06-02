@@ -257,6 +257,27 @@
     name.focus();
   };
 
+  // Render our widget into `root`, clearing any pre-existing (e.g. mock) content.
+  function takeOver(root) {
+    if (root.classList.contains('ttb')) return; // already ours
+    root.classList.add('ttb');
+    root.innerHTML = '';
+    injectStyles();
+    new App(root);
+  }
+
+  // If the mount lives inside a framework-managed tree (e.g. a React SPA's
+  // #root), a re-render may replace our node. Watch the parent and re-assert.
+  function guard() {
+    var parent = (document.querySelector(MOUNT_SEL) || {}).parentNode;
+    if (!parent || typeof MutationObserver === 'undefined') return;
+    var obs = new MutationObserver(function () {
+      var live = document.querySelector(MOUNT_SEL);
+      if (live && !live.classList.contains('ttb')) takeOver(live);
+    });
+    obs.observe(parent, { childList: true });
+  }
+
   function init() {
     var root = document.querySelector(MOUNT_SEL);
     if (!root) {
@@ -264,11 +285,12 @@
       root = el('div', { id: 'booking-system' });
       (document.querySelector('main') || document.body).appendChild(root);
     }
-    root.classList.add('ttb');
-    injectStyles();
-    new App(root);
+    takeOver(root);
+    guard();
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
+  // Run after the host app has rendered (window load), so we replace its
+  // markup rather than getting overwritten by it.
+  if (document.readyState === 'complete') init();
+  else window.addEventListener('load', init);
 })();
