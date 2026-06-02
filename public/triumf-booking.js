@@ -131,44 +131,56 @@
     '</div>';
   }
 
-  // One clickable half-box for a single 30-minute slot (upper = :00, lower = :30).
-  var HALF = 'h-6 sm:h-7 m-0.5 rounded border transition-all flex items-center justify-center text-[10px]';
-  function halfHtml(day, court, minutes, exists, booked) {
-    if (!exists) return '<div class="' + HALF + ' bg-white/[0.01] border-transparent"></div>';
-    if (isPast(day, minutes)) return '<div class="' + HALF + ' bg-white/[0.02] border-white/5"></div>';
-    if (booked) return '<div aria-label="Ocupat" class="' + HALF + ' bg-rose-400/30 border-rose-300/40"></div>';
-    return '<button data-ttb-free data-court="' + court + '" data-time="' + fmt(minutes) +
-      '" aria-label="Liber ' + fmt(minutes) + ' - apasă pentru rezervare" class="' + HALF +
-      ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 hover:scale-[1.03] cursor-pointer"></button>';
+  var COURT_NAMES = { 1: 'Teren 1', 2: 'Teren 2' };
+  var STATE_RO = { free: 'liber', booked: 'ocupat', past: 'trecut' };
+
+  function halfState(day, court, minutes, map) {
+    var s = map[minutes];
+    if (!s) return 'none';
+    if (isPast(day, minutes)) return 'past';
+    return (court === 1 ? s.c1 : s.c2) ? 'booked' : 'free';
   }
 
+  // One 30-min half. pos: 'solo' (own rounded box) | 'top' | 'bot' (merged, shared box).
+  function halfEl(day, court, minutes, st, pos) {
+    var round = pos === 'top' ? 'rounded-t-md border-b-0' : pos === 'bot' ? 'rounded-b-md border-t-0' : 'rounded-md';
+    var base = 'h-7 flex items-center justify-center border transition-all ' + round;
+    if (st === 'none') return '<div class="' + base + ' bg-transparent border-transparent"></div>';
+    var tip = COURT_NAMES[court] + ', ' + fmt(minutes) + '-' + fmt(minutes + 30) + ', ' + STATE_RO[st];
+    if (st === 'past') return '<div title="' + tip + '" class="' + base + ' bg-white/[0.02] border-white/5"></div>';
+    if (st === 'booked') return '<div title="' + tip + '" class="' + base + ' bg-rose-400/30 border-rose-300/40"></div>';
+    return '<button data-ttb-free data-court="' + court + '" data-time="' + fmt(minutes) + '" title="' + tip +
+      '" class="' + base + ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 cursor-pointer"></button>';
+  }
+
+  // A court's hour cell: one merged rounded box when both halves share a state,
+  // otherwise two separated half-boxes (split look via different colors).
   function courtCellHtml(day, court, hour, map) {
-    var s00 = map[hour * 60], s30 = map[hour * 60 + 30];
-    var b00 = s00 && (court === 1 ? s00.c1 : s00.c2);
-    var b30 = s30 && (court === 1 ? s30.c1 : s30.c2);
-    return '<div class="flex flex-col justify-center px-0.5">' +
-      halfHtml(day, court, hour * 60, !!s00, b00) +
-      halfHtml(day, court, hour * 60 + 30, !!s30, b30) +
+    var t0 = hour * 60, t1 = hour * 60 + 30;
+    var s0 = halfState(day, court, t0, map), s1 = halfState(day, court, t1, map);
+    var merged = s0 === s1;
+    return '<div class="flex flex-col p-1 ' + (merged ? '' : 'gap-1') + '">' +
+      halfEl(day, court, t0, s0, merged ? 'top' : 'solo') +
+      halfEl(day, court, t1, s1, merged ? 'bot' : 'solo') +
     '</div>';
   }
 
-  // One row per hour: hourly label on the left, two split half-boxes per court.
+  // One row per hour: hourly label (vertically centered) + two court cells.
   function rowHtml(day, hour, map) {
-    var hourPast = isPast(day, hour * 60 + 30); // whole hour gone once :30 is past
-    var oraCls = 'px-3 flex items-center text-xs sm:text-sm font-medium border-r border-white/10 bg-white/[0.02] ' + (hourPast ? 'text-foreground/30' : 'text-foreground/80');
-    return '<div class="grid border-b border-white/5 last:border-b-0" style="' + GRID_COLS + '">' +
-      '<div class="' + oraCls + '">' + pad(hour) + '-' + pad(hour + 1) + '</div>' +
+    return '<div class="grid items-stretch rounded-lg bg-white/[0.02]" style="' + GRID_COLS + '">' +
+      '<div class="px-3 flex items-center text-xs sm:text-sm font-medium text-foreground/80 border-r border-white/10">' + pad(hour) + '-' + pad(hour + 1) + '</div>' +
       courtCellHtml(day, 1, hour, map) + courtCellHtml(day, 2, hour, map) + '</div>';
   }
 
   function tableHtml(rowsHtml) {
     return '<div class="overflow-x-auto scrollbar-thin -mx-1 px-1">' +
-      '<div class="min-w-[420px] rounded-xl overflow-hidden border border-white/10">' +
-        '<div class="grid bg-white/[0.06] border-b border-white/10" style="' + GRID_COLS + '">' +
-          '<div class="p-3 text-xs font-bold uppercase tracking-wider text-foreground/90 border-r border-white/10">Ora</div>' +
-          '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 1</div>' +
-          '<div class="p-3 text-xs sm:text-sm font-bold text-center text-foreground/90 border-l border-white/10">Teren 2</div>' +
-        '</div>' + rowsHtml +
+      '<div class="min-w-[420px]">' +
+        '<div class="grid mb-2" style="' + GRID_COLS + '">' +
+          '<div class="px-3 py-2 text-xs font-bold uppercase tracking-wider text-foreground/90">Ora</div>' +
+          '<div class="px-3 py-2 text-xs sm:text-sm font-bold text-center text-foreground/90">Teren 1</div>' +
+          '<div class="px-3 py-2 text-xs sm:text-sm font-bold text-center text-foreground/90">Teren 2</div>' +
+        '</div>' +
+        '<div class="space-y-2">' + rowsHtml + '</div>' +
       '</div>' +
     '</div>';
   }
