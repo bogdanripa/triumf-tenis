@@ -38,6 +38,11 @@
   function pad(n) { return String(n).padStart(2, '0'); }
   function titleCase(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s; }
 
+  // Remember the visitor's contact details between bookings (best-effort).
+  var CONTACT_KEY = 'ttb-contact';
+  function loadContact() { try { return JSON.parse(localStorage.getItem(CONTACT_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function saveContact(c) { try { localStorage.setItem(CONTACT_KEY, JSON.stringify(c)); } catch (e) {} }
+
   function validEmail(v) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
   }
@@ -320,6 +325,15 @@
     var name = el('input', { type: 'text', placeholder: 'Numele tău', style: INPUT });
     var email = el('input', { type: 'email', placeholder: 'email@exemplu.ro', style: INPUT });
     var phone = el('input', { type: 'tel', placeholder: '07xx xxx xxx', style: INPUT });
+
+    // Prefill from previous bookings, and persist on blur.
+    var saved = loadContact();
+    name.value = saved.name || '';
+    email.value = saved.email || '';
+    phone.value = saved.phone || '';
+    function persistContact() { saveContact({ name: name.value.trim(), email: email.value.trim(), phone: phone.value.trim() }); }
+    [name, email, phone].forEach(function (f) { f.addEventListener('blur', persistContact); });
+
     var duration = el('select', { style: INPUT }, DURATIONS.map(function (d) { return el('option', { value: d.value, text: d.label }); }));
     duration.addEventListener('change', function () { summaryEl.textContent = courtName + ' • ' + dateLabel(day) + ' • ' + rangeText(); });
     var errorBox = el('p', { style: 'color:#fca5a5;font-size:13px;margin:6px 0 0;min-height:16px;' });
@@ -362,6 +376,7 @@
       if (!name.value.trim()) { errorBox.textContent = 'Te rugăm să introduci numele.'; return; }
       if (!validEmail(email.value)) { errorBox.textContent = 'Te rugăm să introduci o adresă de email validă.'; return; }
       if (!validPhone(phone.value)) { errorBox.textContent = 'Număr de telefon invalid (minim 10 cifre, fără litere).'; return; }
+      persistContact();
       setBusy(true);
       fetch(API + '/api/reserve', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
