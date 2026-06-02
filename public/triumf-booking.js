@@ -131,9 +131,6 @@
     '</div>';
   }
 
-  var COURT_NAMES = { 1: 'Teren 1', 2: 'Teren 2' };
-  var STATE_RO = { free: 'liber', booked: 'ocupat' };
-
   function halfState(day, court, minutes, map) {
     var s = map[minutes];
     if (!s) return 'none';
@@ -150,13 +147,14 @@
     var radius = pos === 'top' ? 'border-bottom-width:0;border-radius:6px 6px 0 0;'
       : pos === 'bot' ? 'border-top-width:0;border-radius:0 0 6px 6px;'
       : 'border-radius:6px;';
-    var base = 'h-7 flex items-center justify-center border transition-all';
+    // Fixed height + clipped, no-wrap text so the label can't grow the box.
+    var base = 'h-7 flex items-center justify-center border transition-all overflow-hidden whitespace-nowrap px-1';
     // 'past' (the elapsed half of the current hour) renders blank, like 'none'.
     if (st === 'none' || st === 'past') return '<div class="' + base + ' bg-transparent border-transparent"></div>';
-    var tip = COURT_NAMES[court] + ', ' + fmt(minutes) + '-' + fmt(minutes + 30) + ', ' + STATE_RO[st];
-    if (st === 'booked') return '<div title="' + tip + '" style="' + radius + '" class="' + base + ' bg-rose-400/30 border-rose-300/40"></div>';
-    return '<button data-ttb-free data-court="' + court + '" data-time="' + fmt(minutes) + '" title="' + tip +
-      '" style="' + radius + '" class="' + base + ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 cursor-pointer"></button>';
+    var label = fmt(minutes) + '-' + fmt(minutes + 30);
+    if (st === 'booked') return '<div style="' + radius + 'font-size:10px;line-height:1;color:#fecdd3;" class="' + base + ' bg-rose-400/30 border-rose-300/40">' + label + '</div>';
+    return '<button data-ttb-free data-court="' + court + '" data-time="' + fmt(minutes) +
+      '" style="' + radius + 'font-size:10px;line-height:1;color:#d1fae5;" class="' + base + ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 cursor-pointer">' + label + '</button>';
   }
 
   // A court's hour cell. When both halves are visible they touch, with rounded
