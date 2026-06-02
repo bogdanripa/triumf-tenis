@@ -1,38 +1,14 @@
-// Cross-origin support for the public booking endpoint. The browser form lives
-// on https://triumf-tenis.ro, a different origin than this Vercel deployment,
-// so responses must carry CORS headers scoped to the allowed origin(s).
-//
-// Override the allowlist with the ALLOWED_ORIGINS env var (comma-separated).
-const DEFAULT_ALLOWED = [
-  'https://triumf-tenis.ro',
-  'https://www.triumf-tenis.ro',
-  'http://localhost:3000',
-];
-
-function allowedOrigins(): string[] {
-  const env = process.env.ALLOWED_ORIGINS;
-  if (env) return env.split(',').map((s) => s.trim()).filter(Boolean);
-  return DEFAULT_ALLOWED;
+// CORS for the public booking + schedule endpoints. These carry no cookies or
+// credentials, so they are open to any origin.
+export function isAllowedOrigin(_origin: string | null): boolean {
+  return true;
 }
 
-export function isAllowedOrigin(origin: string | null): boolean {
-  if (!origin) return false;
-  // Any localhost / 127.0.0.1 port is fine for local development.
-  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
-  return allowedOrigins().includes(origin);
-}
-
-// Headers to attach to every response from the endpoint. Access-Control-Allow-
-// Origin can't be a list, so we echo the request origin when it's allowed.
-export function corsHeaders(origin: string | null): Record<string, string> {
-  const headers: Record<string, string> = {
-    Vary: 'Origin',
+export function corsHeaders(_origin: string | null): Record<string, string> {
+  return {
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
-  if (isAllowedOrigin(origin)) {
-    headers['Access-Control-Allow-Origin'] = origin as string;
-  }
-  return headers;
 }
