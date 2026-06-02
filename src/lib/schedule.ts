@@ -39,48 +39,46 @@ export function isFreeCell(text: string): boolean {
 export type DaySlot = { row: number; start: number; court1Col: number; court2Col: number; c1free: boolean; c2free: boolean };
 export type DayGrid = { court1Col: number; court2Col: number; slots: DaySlot[] };
 
-function findCell(ws: ExcelJS.Worksheet, match: (t: string) => boolean): { row: number; col: number } | null {
-  let res: { row: number; col: number } | null = null;
-  ws.eachRow({ includeEmpty: false }, (row, rn) => {
-    if (res) return;
-    row.eachCell({ includeEmpty: false }, (cell, cn) => {
-      if (res) return;
-      const v = cell.value;
-      if (typeof v === 'string' && match(stripFormatting(v).trim())) res = { row: rn, col: cn };
-    });
-  });
-  return res;
-}
-
 // Read a single day's grid: the day occupies two columns (Teren 1 / Teren 2)
 // under a header like "MARTI 02" in the header row; the "Ora" column holds the
 // 30-minute time slots. Each cell is a player name (booked) or blank/trailing-x
 // (free).
 export function readDay(ws: ExcelJS.Worksheet, dayOfWeek: string, day: string): DayGrid | null {
-  const ora = findCell(ws, (t) => t.toLowerCase() === 'ora');
-  if (!ora) return null;
-  const headerRow = ora.row;
-  const oraCol = ora.col;
-
   const padded = `${dayOfWeek} ${day}`;
   const plain = `${dayOfWeek} ${parseInt(day, 10)}`;
+
+  // The sheet stacks weekly blocks vertically, each with its own header row and
+  // "Ora" column, so find the day header ANYWHERE (not just the first block).
+  let headerRow = 0;
   let court1Col = 0;
-  ws.getRow(headerRow).eachCell({ includeEmpty: false }, (cell, c) => {
+  ws.eachRow({ includeEmpty: false }, (row, rn) => {
     if (court1Col) return;
-    const v = cell.value;
-    if (typeof v !== 'string') return;
-    const t = stripFormatting(v).trim();
-    if (t === padded || t === plain) court1Col = c;
+    row.eachCell({ includeEmpty: false }, (cell, cn) => {
+      if (court1Col) return;
+      const v = cell.value;
+      if (typeof v !== 'string') return;
+      const t = stripFormatting(v).trim();
+      if (t === padded || t === plain) { headerRow = rn; court1Col = cn; }
+    });
   });
   if (!court1Col) return null;
+
+  // "Ora" (time) column for this block: in the same header row, else column A.
+  let oraCol = 0;
+  ws.getRow(headerRow).eachCell({ includeEmpty: false }, (cell, c) => {
+    if (oraCol) return;
+    const v = cell.value;
+    if (typeof v === 'string' && stripFormatting(v).trim().toLowerCase() === 'ora') oraCol = c;
+  });
+  if (!oraCol) oraCol = 1;
 
   const court2Col = court1Col + 1;
   const slots: DaySlot[] = [];
   for (let r = headerRow + 1; r <= headerRow + 400; r++) {
     const ot = cellText(ws, r, oraCol);
-    if (ot === '') break; // end of the time grid
+    if (ot === '') break;                 // blank row = end of this block
     const m = ot.match(/(\d{1,2}):(\d{2})/);
-    if (!m) continue;
+    if (!m) break;                        // non-time (next block's header/"Ora") = end of block
     const start = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
     slots.push({
       row: r,
