@@ -13,6 +13,14 @@ function label(min: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+// Calendar date for a dayIdx (0 = today), matching how importSchedule maps
+// today + dayIdx. Uses server-local time, same as the importer.
+function ymd(dayIdx: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + dayIdx);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export async function OPTIONS(req: NextRequest) {
   return new NextResponse(null, { status: 204, headers: corsHeaders(req.headers.get('origin')) });
 }
@@ -44,6 +52,7 @@ export async function GET(req: NextRequest) {
     .map((day) => ({
       dayIdx: day.dayIdx,
       dayOfWeek: day.dayOfWeek,
+      date: ymd(day.dayIdx),
       slots: [...day.times.entries()]
         .sort((a, b) => a[0] - b[0])
         .map(([time, locs]) => ({
