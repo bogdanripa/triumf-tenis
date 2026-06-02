@@ -39,6 +39,18 @@
   function pad(n) { return String(n).padStart(2, '0'); }
   function titleCase(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s; }
 
+  function validEmail(v) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || '').trim());
+  }
+
+  // Romanian or international: only digits and separators (+, spaces, -, (), .),
+  // no letters, and at least 10 digits overall.
+  function validPhone(v) {
+    v = (v || '').trim();
+    if (!/^\+?[0-9\s().\-]+$/.test(v)) return false;
+    return v.replace(/\D/g, '').length >= 10;
+  }
+
   function translateError(msg) {
     if (!msg) return 'A apărut o eroare. Încearcă din nou.';
     if (/already booked/i.test(msg)) return 'Acest interval este deja rezervat.';
@@ -272,6 +284,8 @@
     submit.addEventListener('click', function () {
       errorBox.textContent = '';
       if (!name.value.trim()) { errorBox.textContent = 'Te rugăm să introduci numele.'; return; }
+      if (!validEmail(email.value)) { errorBox.textContent = 'Te rugăm să introduci o adresă de email validă.'; return; }
+      if (!validPhone(phone.value)) { errorBox.textContent = 'Număr de telefon invalid (minim 10 cifre, fără litere).'; return; }
       setBusy(true);
       fetch(API + '/api/reserve', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -288,7 +302,7 @@
     var modal = el('div', { style: 'position:relative;background:#15131f;color:#e5e7eb;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:22px;max-width:380px;width:100%;font-family:inherit;box-shadow:0 20px 60px rgba(0,0,0,.5);' }, [
       el('h3', { text: 'Rezervă terenul', style: 'margin:0 0 4px;font-size:18px;color:#fff;' }),
       el('p', { text: summary, style: 'margin:0 0 16px;color:#9ca3af;font-size:14px;' }),
-      field('Nume *', name), field('Email', email), field('Telefon', phone), field('Durată', duration),
+      field('Nume *', name), field('Email *', email), field('Telefon *', phone), field('Durată', duration),
       errorBox,
       el('div', { style: 'display:flex;gap:10px;margin-top:8px;' }, [cancel, submit]),
       loadingLayer,
