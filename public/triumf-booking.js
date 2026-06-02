@@ -80,7 +80,9 @@
     s.id = 'ttb-modal-style';
     s.textContent =
       '@keyframes ttb-spin{to{transform:rotate(360deg)}}' +
-      '.ttb-spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,.18);border-top-color:#a78bfa;border-radius:50%;animation:ttb-spin .8s linear infinite}';
+      '.ttb-spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,.18);border-top-color:#a78bfa;border-radius:50%;animation:ttb-spin .8s linear infinite}' +
+      '.ttb-half .ttb-lbl{opacity:0;transition:opacity .12s}' +
+      '.ttb-half:hover .ttb-lbl{opacity:1}';
     document.head.appendChild(s);
   }
 
@@ -151,10 +153,11 @@
     var base = 'h-7 flex items-center justify-center border transition-all overflow-hidden whitespace-nowrap px-1';
     // 'past' (the elapsed half of the current hour) renders blank, like 'none'.
     if (st === 'none' || st === 'past') return '<div class="' + base + ' bg-transparent border-transparent"></div>';
-    var label = fmt(minutes) + '-' + fmt(minutes + 30);
-    if (st === 'booked') return '<div style="' + radius + 'font-size:10px;line-height:1;color:#fecdd3;" class="' + base + ' bg-rose-400/30 border-rose-300/40">' + label + '</div>';
+    // Start time only, shown on hover.
+    var label = '<span class="ttb-lbl">' + fmt(minutes) + '</span>';
+    if (st === 'booked') return '<div style="' + radius + 'font-size:10px;line-height:1;color:#fecdd3;" class="' + base + ' ttb-half bg-rose-400/30 border-rose-300/40">' + label + '</div>';
     return '<button data-ttb-free data-court="' + court + '" data-time="' + fmt(minutes) +
-      '" style="' + radius + 'font-size:10px;line-height:1;color:#d1fae5;" class="' + base + ' bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 cursor-pointer">' + label + '</button>';
+      '" style="' + radius + 'font-size:10px;line-height:1;color:#d1fae5;" class="' + base + ' ttb-half bg-emerald-400/30 border-emerald-300/40 hover:bg-emerald-400/50 cursor-pointer">' + label + '</button>';
   }
 
   // A court's hour cell. When both halves are visible they touch, with rounded
@@ -203,6 +206,7 @@
   }
 
   function render(card) {
+    ensureStyles();
     card.setAttribute('data-ttb', '1');
 
     if (state.status === 'loading') {
