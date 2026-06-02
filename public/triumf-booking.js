@@ -207,20 +207,50 @@
     });
   }
 
-  function findCard() {
-    if (CARD_SEL) { var e = document.querySelector(CARD_SEL); if (e) return e; }
+  // Our own container. We never modify React-owned nodes (that triggers
+  // "removeChild ... not a child" when React later reconciles); instead we hide
+  // the original mock card and render into this sibling that React doesn't track.
+  var ours = null;
+  function makeOurs() {
+    var d = document.createElement('div');
+    d.setAttribute('data-ttb-own', '1');
+    d.className = 'glass-card p-4 sm:p-6';
+    return d;
+  }
+
+  // Find the React-rendered mock card (never our own container).
+  function findReactCard() {
+    if (CARD_SEL) return document.querySelector(CARD_SEL);
     var hs = document.querySelectorAll('h1,h2,h3,h4,h5');
     for (var i = 0; i < hs.length; i++) {
-      if ((hs[i].textContent || '').indexOf(HEADING) !== -1) {
-        return hs[i].closest('.glass-card') || hs[i].parentElement;
-      }
+      if ((hs[i].textContent || '').indexOf(HEADING) === -1) continue;
+      var card = hs[i].closest('.glass-card') || hs[i].parentElement;
+      if (!card || card.getAttribute('data-ttb-own') === '1') continue;
+      if (ours && ours.contains(card)) continue;
+      return card;
     }
     return null;
   }
 
+  // The element we render INTO. With data-card we render straight into that
+  // (presumed-empty) element; otherwise we place our own card next to the mock
+  // and hide the mock. Returns null if there's nowhere to mount yet.
+  function container() {
+    if (CARD_SEL) return document.querySelector(CARD_SEL);
+    var anchor = findReactCard();
+    if (!ours) ours = makeOurs();
+    if (anchor && anchor.parentNode) {
+      if (ours.previousElementSibling !== anchor || ours.parentNode !== anchor.parentNode) {
+        anchor.parentNode.insertBefore(ours, anchor.nextSibling);
+      }
+      if (anchor.style.display !== 'none') anchor.style.setProperty('display', 'none', 'important');
+    }
+    return ours.parentNode ? ours : null;
+  }
+
   function mount() {
-    var card = findCard();
-    if (card) render(card);
+    var c = container();
+    if (c) render(c);
   }
 
   function load() {
@@ -312,21 +342,28 @@
     name.focus();
   }
 
-  // Re-assert over the original card if the SPA re-renders it.
+  // If the SPA re-renders, re-hide its (new) mock card and make sure our
+  // container is still mounted/rendered. Debounced; never touches React nodes'
+  // children, so it can't cause a removeChild error.
   function guard() {
     if (typeof MutationObserver === 'undefined') return;
-    var scope = document.getElementById('booking-system') || document.body;
+    var pending = false;
     var obs = new MutationObserver(function () {
-      var card = findCard();
-      if (card && card.getAttribute('data-ttb') !== '1') render(card);
+      if (pending) return;
+      pending = true;
+      setTimeout(function () {
+        pending = false;
+        var c = container(); // side effect: re-hides any fresh mock, re-places ours
+        if (c && c.getAttribute('data-ttb') !== '1') render(c); // only if our content got wiped
+      }, 50);
     });
-    obs.observe(scope, { childList: true, subtree: true });
+    obs.observe(document.body, { childList: true, subtree: true });
   }
 
   function init() {
     var tries = 0;
     (function waitForCard() {
-      if (findCard()) { mount(); load(); guard(); return; } // show loading immediately, then fetch
+      if (findReactCard()) { mount(); load(); guard(); return; } // show loading immediately, then fetch
       if (tries++ < 20) setTimeout(waitForCard, 150);
     })();
   }
